@@ -1,0 +1,14 @@
+[gd_scene load_steps=4 format=3 uid="uid://d4t6y1a8be3nq"]
+
+[ext_resource type="Script" uid="uid://a2f5j0c7uh9px" path="res://scripts/world.gd" id="1_world"]
+[ext_resource type="PackedScene" uid="uid://e1w8s3d6gk2vr" path="res://scenes/player.tscn" id="2_player"]
+[ext_resource type="Script" uid="uid://g3q6x2y8ja1bd" path="res://scripts/street_builder.gd" id="3_street"]
+
+[node name="World" type="Node3D" unique_id=301]
+script = ExtResource("1_world")
+
+[node name="StreetBuilder" type="Node3D" parent="." unique_id=302]
+script = ExtResource("3_street")
+
+[node name="Player" parent="." unique_id=303 instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -6)
