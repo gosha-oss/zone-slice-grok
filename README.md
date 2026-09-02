@@ -1,11 +1,13 @@
-# Zone Slice
+# Pripyat Slice
 
 Godot 4.7 Standard, GDScript, Forward+, Jolt.
 
-Скачать zip:
-https://github.com/gosha-oss/zone-slice-grok/archive/refs/heads/main.zip
+This is DAY. If you still see night, you opened the OLD folder.
 
-Godot 4.7 → Import → F5
+1. Unzip.
+2. Open the INNER folder that contains project.godot (zone-slice-grok-main).
+3. Godot 4.7 Import that project.godot.
+4. Project → Reload Current Project.
+5. F5.
 
-F — фонарик (включён сразу)
-ЛКМ огонь · ПКМ прицел · R · G болт · E · Tab · Esc
+Do not import the old Zone Slice folder. Do not copy over it.
