@@ -1,62 +1,50 @@
 extends Control
 
-var _root: Control
-var _title: Label
-var _new_game: Button
-var _quit: Button
-
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_build_ui()
-	_new_game.pressed.connect(_on_new_game)
-	_quit.pressed.connect(_on_quit)
-	_new_game.grab_focus()
 
 
 func _build_ui() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.04, 0.035, 0.03, 1.0)
+	bg.color = Color(0.42, 0.44, 0.46, 1.0)
 	add_child(bg)
 
-	_root = CenterContainer.new()
-	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(_root)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 18)
-	_root.add_child(col)
+	col.add_theme_constant_override("separation", 16)
+	center.add_child(col)
 
-	_title = Label.new()
-	_title.text = "ZONE SLICE"
-	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.add_theme_font_size_override("font_size", 42)
-	_title.add_theme_color_override("font_color", Color(0.86, 0.62, 0.28, 1.0))
-	col.add_child(_title)
+	var title := Label.new()
+	title.text = "PRIPYAT SLICE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 48)
+	title.add_theme_color_override("font_color", Color(0.92, 0.62, 0.22, 1.0))
+	col.add_child(title)
 
 	var sub := Label.new()
-	sub.text = "Ночь. Дождь. Улица."
+	sub.text = "Пасмурный день. Квартал. Контракт."
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 18)
-	sub.add_theme_color_override("font_color", Color(0.62, 0.58, 0.5, 1.0))
+	sub.add_theme_color_override("font_color", Color(0.22, 0.22, 0.22, 1.0))
 	col.add_child(sub)
 
-	_new_game = Button.new()
-	_new_game.text = "Новая игра"
-	_new_game.custom_minimum_size = Vector2(280, 44)
-	col.add_child(_new_game)
+	var ng := Button.new()
+	ng.text = "Новая игра"
+	ng.custom_minimum_size = Vector2(300, 46)
+	ng.pressed.connect(Game.go_world)
+	col.add_child(ng)
 
-	_quit = Button.new()
-	_quit.text = "Выход"
-	_quit.custom_minimum_size = Vector2(280, 44)
-	col.add_child(_quit)
+	var q := Button.new()
+	q.text = "Выход"
+	q.custom_minimum_size = Vector2(300, 46)
+	q.pressed.connect(func() -> void: get_tree().quit())
+	col.add_child(q)
 
-
-func _on_new_game() -> void:
-	Game.go_world()
-
-
-func _on_quit() -> void:
-	get_tree().quit()
+	ng.grab_focus()
