@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>NINELINE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect fill='%23070b10' width='16' height='16'/><rect fill='%23ff3355' y='13' width='16' height='2'/></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <p class="brand">NINELINE <span>20×25</span></p>
+    <section class="frame" id="frame">
+      <div class="world is-drive is-wet" id="world">
+        <img id="plateA" class="plate" src="plates/spine-west__day__chase.jpg" alt="Spine West, день, камера сзади" />
+        <img id="plateB" class="plate" alt="" />
+        <canvas id="air"></canvas>
+        <div class="shimmer"></div>
+        <div class="lamps" id="lamps"></div>
+        <div class="muzzle" id="muzzle"></div>
+        <div class="hurt" id="hurt"></div>
+      </div>
+      <div class="hud">
+        <div class="hp" id="hp">
+          <span id="hpnum">100</span>
+          <i><b id="hpfill"></b></i>
+        </div>
+        <div class="minimap" id="minimap" aria-hidden="true">
+          <svg id="mmap" viewBox="0 0 80 100"></svg>
+        </div>
+        <div class="quest" id="quest"><b>NINELINE</b><div>Эфир чист</div></div>
+        <div class="call" id="call" hidden></div>
+        <div class="slots" id="slots"></div>
+        <div class="prompt" id="prompt"></div>
+        <div class="sub" id="sub">Красная лента стопов лежит в луже.</div>
+      </div>
+    </section>
+    <section class="remote" aria-label="Пульт">
+      <form class="cmd" id="cmdform">
+        <input id="cmd" autocomplete="off" enterkeyhint="go" placeholder="ехать в Helion Core" aria-label="Реплика" />
+        <button type="submit">ввод</button>
+      </form>
+      <p class="status" id="status" aria-live="polite">Spine West · 7.5 / 12.5 · день · седан · камера сзади</p>
+      <div class="row">
+        <select id="districtPick" aria-label="Район"></select>
+        <button type="button" id="goBtn">ехать в район</button>
+        <select id="interiorPick" aria-label="Интерьер"></select>
+        <button type="button" id="enterBtn">зайти</button>
+      </div>
+      <div class="keys" id="keys"></div>
+      <div class="replies" id="replies"></div>
+    </section>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>

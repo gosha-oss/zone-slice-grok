@@ -1,13 +1,22 @@
-# Pripyat Slice
+# NINELINE
 
-Godot 4.7 Standard, GDScript, Forward+, Jolt.
+Фотографический киберпанк на сетке 20 × 25 км. Кадр — снимок улицы, не примитивы. Пульт под кадром, HUD тонкий.
 
-This is DAY. If you still see night, you opened the OLD folder.
+Старый Godot-проект в этом репозитории к игре не относится.
 
-1. Unzip.
-2. Open the INNER folder that contains project.godot (zone-slice-grok-main).
-3. Godot 4.7 Import that project.godot.
-4. Project → Reload Current Project.
-5. F5.
+## Запуск
 
-Do not import the old Zone Slice folder. Do not copy over it.
+```bash
+cd nineline
+python3 -m http.server 8080
+```
+
+Открыть `http://127.0.0.1:8080`.
+
+Старт: Spine West, 7.5 / 12.5, день, седан, камера сзади.
+
+## Реплика
+
+`ехать в Helion Core` · `ехать по N1 на север` · `ночь` · `золотой час` · `зайти в бар` · `огонь` · `контракт` · `пешком` · `сесть` · `выйти` · `от глаз` · `виста` · `инвентарь` · `карта` · `где я` · `осмотреться` · `атлас`
+
+Восемь контрактов по разным районам. Бой — пешком, HP на кадре. Стим лечит.
