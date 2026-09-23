@@ -22,7 +22,7 @@ const DISTRICTS = [
 ];
 
 const INTERIORS = [
-  { id: "last-shift", district: "glass-cut", label: "Last Shift", names: ["last shift", "ласт шифт", "бар", "bar", "lastshift"], enter: "Тиал от труб. Стойка держит лампы." },
+  { id: "last-shift", district: "glass-cut", label: "Last Shift", names: ["last shift", "ласт шифт", "бар", "bar", "lastshift"], enter: "Бирюза от труб. Стойка держит лампы." },
   { id: "kite-clinic", district: "clinic-row", label: "Kite Clinic", names: ["kite clinic", "клиника", "клинику", "clinic"], enter: "Свет из панелей, не из фильтра. Пол мокрый." },
   { id: "broth-24", district: "broth-basin", label: "Broth 24", names: ["broth 24", "broth", "бульон", "столовая", "столовую"], enter: "Пар над котлом. Плитка зеркалит лампу." },
   { id: "helion-lobby", district: "helion-core", label: "лобби Helion", names: ["лобби", "lobby", "helion lobby", "лобби helion"], enter: "Камень держит лампы. С улицы мокрые следы." },
@@ -220,7 +220,12 @@ function resolvePlate() {
   const cam = state.camera;
   const veh = state.vehicle;
   const exact = firstHave([`${id}|${tod}|${cam}|${veh}`, `${id}|${tod}|${cam}`]);
-  if (exact) return { src: state.index[exact], note: "", shownTod: tod };
+  if (exact) {
+    const carNote = state.mode === "drive" && !state.interior && veh !== "sedan" && exact.split("|").length < 4
+      ? "в кадре седан"
+      : "";
+    return { src: state.index[exact], note: carNote, shownTod: tod };
+  }
   const fb = firstHave([
     `${id}|${tod}|chase|${veh}`,
     `${id}|${tod}|chase`,
