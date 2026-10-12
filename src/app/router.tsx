@@ -1,36 +1,36 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { parseRoute, RouteContext, useRoute, type Route } from "./route-context";
+import { isKnownPath, parseLocation, RouteContext, useRoute, type AppLocation } from "./route-context";
 
 export function Router({ children }: { children: ReactNode }) {
-  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname) ?? "/");
+  const [location, setLocation] = useState<AppLocation>(() => parseLocation(window.location.pathname));
 
   useEffect(() => {
-    if (parseRoute(window.location.pathname) === null) {
+    if (!isKnownPath(window.location.pathname)) {
       window.history.replaceState({}, "", "/");
     }
 
     const onPop = () => {
-      const next = parseRoute(window.location.pathname);
-      if (next === null) {
+      if (!isKnownPath(window.location.pathname)) {
         window.history.replaceState({}, "", "/");
-        setRoute("/");
+        setLocation({ kind: "landing" });
         return;
       }
-      setRoute(next);
+      setLocation(parseLocation(window.location.pathname));
     };
 
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  const navigate = useCallback((to: Route) => {
-    if (window.location.pathname !== to) {
-      window.history.pushState({}, "", to);
+  const navigate = useCallback((to: string) => {
+    const path = to.startsWith("/") ? to : `/${to}`;
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, "", path);
     }
-    setRoute(to);
+    setLocation(parseLocation(path));
   }, []);
 
-  return <RouteContext.Provider value={{ route, navigate }}>{children}</RouteContext.Provider>;
+  return <RouteContext.Provider value={{ location, navigate }}>{children}</RouteContext.Provider>;
 }
 
 export function Link({
@@ -38,7 +38,7 @@ export function Link({
   className,
   children,
 }: {
-  to: Route;
+  to: string;
   className?: string;
   children: ReactNode;
 }) {

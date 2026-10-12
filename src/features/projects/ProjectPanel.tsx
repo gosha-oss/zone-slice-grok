@@ -1,6 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { RotateCcw } from "lucide-react";
+import { useRoute } from "../../app/route-context";
 import { ProgressMeter } from "../../components/ProgressMeter";
+import { TaskForm } from "../tasks/TaskForm";
+import { ParticipantList } from "../team/ParticipantList";
 import {
   activeCount,
   allTasks,
@@ -13,13 +16,16 @@ import {
   progressPercent,
 } from "../../lib/progress";
 import {
+  PRIORITY_LABEL,
   PRESENCE_LABEL,
   STATUS_LABEL,
   stagePresence,
   statusTone,
   taskAppearance,
 } from "../../lib/taskVisual";
+import { MAX_STAGES } from "../../services/demoStore";
 import type { Project, Selection, Stage, Task } from "../../types/project";
+import { useDemoData } from "./demo-data-context";
 
 const TONE_CLASS = {
   good: "bg-good",
@@ -38,13 +44,9 @@ function findTask(stage: Stage | undefined, selection: Selection): Task | undefi
   return stage.tasks.find((task) => task.id === selection.taskId);
 }
 
-function announcement(project: Project, selection: Selection): string {
-  if (selection.kind === "project") return `Выбран проект ${project.name}`;
-  const stage = findStage(project, selection);
-  if (!stage) return `Выбран проект ${project.name}`;
-  if (selection.kind === "stage") return `Выбран этап ${stage.name}`;
-  const task = findTask(stage, selection);
-  return task ? `Выбрана задача ${task.title}` : `Выбран этап ${stage.name}`;
+function personName(project: Project, assigneeId: string | undefined): string | undefined {
+  if (!assigneeId) return undefined;
+  return project.participants.find((person) => person.id === assigneeId)?.name;
 }
 
 export function ProjectPanel({
@@ -66,6 +68,8 @@ export function ProjectPanel({
   coarsePointer: boolean;
   reducedMotion: boolean;
 }) {
+  const { navigate } = useRoute();
+  const data = useDemoData();
   const tasks = allTasks(project);
   const progress = progressPercent(tasks);
   const completed = completedCount(tasks);
@@ -75,33 +79,72 @@ export function ProjectPanel({
   const nearest = nearestStage(project);
   const stage = findStage(project, selection);
   const task = findTask(stage, selection);
-  const detailRef = useRef<HTMLDivElement>(null);
+  const [stageName, setStageName] = useState("");
+  const [stageError, setStageError] = useState<string | null>(null);
+  const formStageId = stage?.id ?? project.stages[0]?.id ?? "";
 
   useEffect(() => {
-    detailRef.current?.scrollIntoView({
-      block: "nearest",
-      behavior: reducedMotion ? "auto" : "smooth",
-    });
+    const node = document.getElementById("project-detail");
+    node?.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
   }, [reducedMotion, selection]);
 
   const hint = !webgl
     ? "WebGL нет, поэтому камера выключена. Выберите объект на схеме или в списке. Данные те же."
     : coarsePointer
-      ? "Проведите пальцем, чтобы осмотреть. Сведите пальцы, чтобы изменить масштаб. Этапы можно выбрать в списке."
-      : "Мышь вращает и приближает. Стрелки — обзор, + и − — масштаб, 1–4 — этапы, 0 или Esc — проект, R — общий вид.";
+      ? "Проведите пальцем, чтобы осмотреть. Сведите пальцы, чтобы изменить масштаб."
+      : "Мышь вращает и приближает. Стрелки — обзор, + и − — масштаб, цифры — этапы, 0 или Esc — проект, R — общий вид.";
+
+  const createStage = (event: FormEvent) => {
+    event.preventDefault();
+    const result = data.addStage(project.id, stageName);
+    if ("error" in result) {
+      setStageError(result.error);
+      return;
+    }
+    setStageName("");
+    setStageError(null);
+    onSelect({ kind: "stage", stageId: result.stageId });
+  };
 
   return (
-    <aside className="bh-panel pointer-events-auto fixed inset-x-3 bottom-3 z-30 max-h-[min(40dvh,calc(100dvh-11rem))] overflow-y-auto p-4 sm:inset-x-auto sm:bottom-5 sm:left-5 sm:w-[23.5rem] sm:max-h-[calc(100dvh-6.5rem)] sm:p-5">
+    <aside className="bh-panel pointer-events-auto fixed inset-x-3 bottom-3 z-30 max-h-[min(46dvh,calc(100dvh-11rem))] overflow-y-auto p-4 sm:inset-x-auto sm:bottom-5 sm:left-5 sm:w-[26rem] sm:max-h-[calc(100dvh-6.5rem)] sm:p-5">
       <p className="sr-only" aria-live="polite">
-        {announcement(project, selection)}
+        {selection.kind === "project"
+          ? `Выбран проект ${project.name}. Прогресс ${formatPercent(progress)}.`
+          : stage
+            ? task
+              ? `Выбрана задача ${task.title}. Прогресс ${formatPercent(progress)}.`
+              : `Выбран этап ${stage.name}. Прогресс ${formatPercent(progress)}.`
+            : `Прогресс ${formatPercent(progress)}.`}
       </p>
       <p className="text-xs tracking-[0.16em] text-muted uppercase">Демонстрационный режим</p>
-      <h1 className="mt-2 font-serif text-3xl leading-none tracking-[-0.03em]">{project.name}</h1>
+      {data.projects.length > 1 && (
+        <label className="bh-field mt-3">
+          Проекты в этом браузере
+          <select value={project.id} onChange={(event) => navigate(`/space/${event.target.value}`)}>
+            {data.projects.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <h1 className="mt-3 font-serif text-3xl leading-none tracking-[-0.03em]">{project.name}</h1>
       <p className="mt-3 text-sm leading-relaxed">{project.summary}</p>
       <p className="mt-2 text-sm leading-relaxed text-muted">Цель: {project.goal}</p>
-      <p className="mt-3 text-xs leading-relaxed text-muted">
-        Локальные данные одного проекта: без входа, без живой модели и без совместной работы.
+      <p className="mt-2 text-xs text-muted">
+        {project.category} · {project.projectType} ·{" "}
+        {project.visibility === "private" ? "Приватный" : "Публичный, только локально"}
       </p>
+      <p className="mt-3 text-xs leading-relaxed text-muted">
+        Локальные данные этого браузера. Нет входа, живой модели и совместной работы.
+      </p>
+      {data.persistError && (
+        <p role="alert" className="mt-2 text-sm text-bad">
+          {data.persistError}
+        </p>
+      )}
 
       <div className="mt-5">
         <ProgressMeter value={progress} label={`${completed} из ${tasks.length} задач`} />
@@ -128,6 +171,8 @@ export function ProjectPanel({
           </div>
         )}
       </dl>
+
+      <ParticipantList people={project.participants} />
 
       <div className="mt-5">
         <h2 className="text-xs tracking-[0.16em] text-muted uppercase">Этапы</h2>
@@ -158,20 +203,59 @@ export function ProjectPanel({
             );
           })}
         </ul>
+        {project.stages.length >= MAX_STAGES ? (
+          <p className="mt-3 text-xs leading-relaxed text-muted">
+            Новый этап недоступен: в сцене уже {MAX_STAGES}.
+          </p>
+        ) : (
+          <form className="mt-3 flex flex-col gap-2 sm:flex-row" onSubmit={createStage}>
+            <label className="bh-field min-w-0 flex-1">
+              <span className="sr-only">Название этапа</span>
+              <input
+                value={stageName}
+                onChange={(event) => setStageName(event.target.value)}
+                placeholder="Новый этап"
+                maxLength={80}
+              />
+            </label>
+            <button type="submit" className="bh-button bh-button-ghost">
+              Добавить этап
+            </button>
+          </form>
+        )}
+        {stageError && (
+          <p role="alert" className="mt-2 text-sm text-bad">
+            {stageError}
+          </p>
+        )}
       </div>
 
       {stage && (
-        <div ref={detailRef} className="mt-4 border-t border-line pt-4">
-          <h2 className="font-serif text-2xl tracking-[-0.03em]">{stage.name}</h2>
-          <p className="mt-1 text-sm text-muted">
-            {formatPercent(progressPercent(stage.tasks))} · {PRESENCE_LABEL[stagePresence(stage.tasks)]}
-          </p>
+        <div id="project-detail" className="mt-4 border-t border-line pt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-2xl tracking-[-0.03em]">{stage.name}</h2>
+              <p className="mt-1 text-sm text-muted">
+                {formatPercent(progressPercent(stage.tasks))} · {PRESENCE_LABEL[stagePresence(stage.tasks)]}
+              </p>
+            </div>
+            {task && (
+              <button
+                type="button"
+                className="bh-button bh-button-ghost"
+                onClick={() => onSelect({ kind: "stage", stageId: stage.id })}
+              >
+                К этапу
+              </button>
+            )}
+          </div>
           <ul className="mt-3 flex flex-col gap-1">
             {stage.tasks.map((item) => {
               const tone = statusTone(item.status);
               const appearance = taskAppearance(item.status);
               const selected = task?.id === item.id;
               const late = isOverdue(item);
+              const assignee = personName(project, item.assigneeId);
               return (
                 <li key={item.id}>
                   <button
@@ -181,14 +265,15 @@ export function ProjectPanel({
                     onClick={() => onSelect({ kind: "task", stageId: stage.id, taskId: item.id })}
                   >
                     <span
-                      className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${appearance.wire ? "border border-muted bg-transparent" : TONE_CLASS[tone]}`}
+                      className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${appearance.wire ? "border border-muted bg-transparent" : TONE_CLASS[tone]} ${appearance.active ? "ring-2 ring-accent ring-offset-2 ring-offset-transparent" : ""}`}
                       style={{ opacity: appearance.opacity }}
                       aria-hidden="true"
                     />
                     <span>
                       <span className="block text-sm">{item.title}</span>
                       <span className="text-xs text-muted">
-                        {STATUS_LABEL[item.status]}
+                        {STATUS_LABEL[item.status]} · {PRIORITY_LABEL[item.priority]}
+                        {assignee ? ` · ${assignee}` : ""}
                         {item.due ? ` · срок ${formatDue(item.due)}` : ""}
                         {late ? " · просрочено" : ""}
                       </span>
@@ -198,9 +283,48 @@ export function ProjectPanel({
               );
             })}
           </ul>
-          <p className="mt-3 text-xs leading-relaxed text-muted">
-            Менять задачи в этой сборке нельзя. Сцена показывает уже посчитанные данные.
-          </p>
+          {task ? (
+            <TaskForm
+              project={project}
+              stages={project.stages}
+              stageId={stage.id}
+              task={task}
+              onSubmit={(stageId, draft) => {
+                const result = data.updateTask(project.id, stageId, task.id, draft);
+                return "error" in result ? result.error : null;
+              }}
+            />
+          ) : (
+            <TaskForm
+              project={project}
+              stages={project.stages}
+              stageId={stage.id}
+              onStageId={(stageId) => onSelect({ kind: "stage", stageId })}
+              onSubmit={(stageId, draft) => {
+                const result = data.addTask(project.id, stageId, draft);
+                if ("error" in result) return result.error;
+                onSelect({ kind: "task", stageId, taskId: result.taskId });
+                return null;
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      {!stage && formStageId && (
+        <div className="mt-4 border-t border-line pt-4">
+          <TaskForm
+            project={project}
+            stages={project.stages}
+            stageId={formStageId}
+            onStageId={(stageId) => onSelect({ kind: "stage", stageId })}
+            onSubmit={(stageId, draft) => {
+              const result = data.addTask(project.id, stageId, draft);
+              if ("error" in result) return result.error;
+              onSelect({ kind: "task", stageId, taskId: result.taskId });
+              return null;
+            }}
+          />
         </div>
       )}
 
@@ -215,9 +339,6 @@ export function ProjectPanel({
         <RotateCcw aria-hidden="true" className="h-4 w-4" />
         Общий вид
       </button>
-      <span className="sr-only">
-        {reducedMotion ? "Анимация сокращена системной настройкой." : ""}
-      </span>
     </aside>
   );
 }

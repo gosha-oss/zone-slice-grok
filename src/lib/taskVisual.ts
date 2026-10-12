@@ -1,4 +1,4 @@
-import type { TaskStatus } from "../types/project";
+import type { Priority, TaskStatus } from "../types/project";
 
 export type StatusTone = "good" | "accent" | "warn" | "muted";
 
@@ -18,18 +18,18 @@ export function statusTone(status: TaskStatus): StatusTone {
   }
 }
 
-export function taskAppearance(status: TaskStatus): { wire: boolean; opacity: number } {
+export function taskAppearance(status: TaskStatus): { wire: boolean; opacity: number; active: boolean } {
   switch (status) {
     case "done":
-      return { wire: false, opacity: 1 };
+      return { wire: false, opacity: 1, active: false };
     case "in_review":
-      return { wire: false, opacity: 1 };
+      return { wire: false, opacity: 1, active: false };
     case "in_progress":
-      return { wire: false, opacity: 0.95 };
+      return { wire: false, opacity: 1, active: true };
     case "todo":
-      return { wire: false, opacity: 0.62 };
+      return { wire: false, opacity: 0.62, active: false };
     case "backlog":
-      return { wire: true, opacity: 0.5 };
+      return { wire: true, opacity: 0.5, active: false };
   }
 }
 
@@ -51,6 +51,12 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   in_progress: "В работе",
   in_review: "На проверке",
   done: "Готово",
+};
+
+export const PRIORITY_LABEL: Record<Priority, string> = {
+  low: "Низкий",
+  medium: "Средний",
+  high: "Высокий",
 };
 
 export const PRESENCE_LABEL: Record<StagePresence, string> = {

@@ -1,10 +1,14 @@
 import { createContext, useContext } from "react";
 
-export type Route = "/" | "/space" | "/explore";
+export type AppLocation =
+  | { kind: "landing" }
+  | { kind: "explore" }
+  | { kind: "create" }
+  | { kind: "space"; projectId: string | null };
 
 type RouteContextValue = {
-  route: Route;
-  navigate: (to: Route) => void;
+  location: AppLocation;
+  navigate: (to: string) => void;
 };
 
 export const RouteContext = createContext<RouteContextValue | null>(null);
@@ -15,9 +19,28 @@ export function useRoute(): RouteContextValue {
   return value;
 }
 
-export function parseRoute(pathname: string): Route | null {
-  if (pathname === "/") return "/";
-  if (pathname === "/space") return "/space";
-  if (pathname === "/explore") return "/explore";
-  return null;
+export function normalizePath(pathname: string): string {
+  if (pathname.length > 1 && pathname.endsWith("/")) return pathname.slice(0, -1);
+  return pathname;
+}
+
+export function parseLocation(pathname: string): AppLocation {
+  const path = normalizePath(pathname);
+  if (path === "/" || path === "") return { kind: "landing" };
+  if (path === "/explore") return { kind: "explore" };
+  if (path === "/new") return { kind: "create" };
+  if (path === "/space") return { kind: "space", projectId: null };
+  if (path.startsWith("/space/")) {
+    const id = decodeURIComponent(path.slice("/space/".length));
+    if (id && !id.includes("/")) return { kind: "space", projectId: id };
+  }
+  return { kind: "landing" };
+}
+
+export function isKnownPath(pathname: string): boolean {
+  const path = normalizePath(pathname);
+  if (path === "/" || path === "/explore" || path === "/new" || path === "/space") return true;
+  if (!path.startsWith("/space/")) return false;
+  const id = path.slice("/space/".length);
+  return id.length > 0 && !id.includes("/");
 }

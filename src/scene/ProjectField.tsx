@@ -307,32 +307,39 @@ function TaskPip({
   const appearance = taskAppearance(task.status);
   const color = toneColor(statusTone(task.status), palette);
   const late = isOverdue(task);
+  const radius = appearance.active ? 0.085 : appearance.wire ? 0.045 : 0.058;
 
   return (
     <Pickable interactive={interactive} onPick={onPick}>
       <group position={position}>
         <mesh raycast={ignoreRaycast}>
-          <sphereGeometry args={[appearance.wire ? 0.045 : 0.058, 12, 12]} />
+          <sphereGeometry args={[radius, 12, 12]} />
           {appearance.wire ? (
             <meshBasicMaterial color={color} wireframe transparent opacity={appearance.opacity} />
           ) : (
             <meshStandardMaterial
               color={color}
               emissive={color}
-              emissiveIntensity={selected ? 0.45 : 0.16}
+              emissiveIntensity={appearance.active ? 0.55 : selected ? 0.45 : 0.16}
               roughness={0.42}
               transparent
               opacity={appearance.opacity}
             />
           )}
         </mesh>
+        {appearance.active && (
+          <mesh rotation={[Math.PI / 2, 0, 0]} raycast={ignoreRaycast}>
+            <torusGeometry args={[0.13, 0.012, 8, 24]} />
+            <meshBasicMaterial color={palette.accent} />
+          </mesh>
+        )}
         <mesh>
-          <sphereGeometry args={[0.14, 8, 8]} />
+          <sphereGeometry args={[0.16, 8, 8]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
         {late && (
           <mesh rotation={[Math.PI / 2, 0, 0]} raycast={ignoreRaycast}>
-            <torusGeometry args={[0.095, 0.008, 6, 18]} />
+            <torusGeometry args={[0.11, 0.008, 6, 18]} />
             <meshBasicMaterial color={palette.bad} />
           </mesh>
         )}
@@ -366,6 +373,7 @@ function StageObject({
 }) {
   const percent = progressPercent(stage.tasks);
   const presence = stagePresence(stage.tasks);
+  const hasActiveTask = stage.tasks.some((item) => item.status === "in_progress");
   const radius = 0.34 + Math.min(stage.tasks.length, 4) * 0.03;
   const scale = presence === "complete" ? 1.08 : presence === "pending" ? 0.9 : 1;
   const speed = reducedMotion ? 0 : presence === "active" ? 0.28 : presence === "complete" ? 0.1 : 0;
@@ -390,7 +398,7 @@ function StageObject({
                 metalness={0.7}
                 roughness={palette.roughness}
                 emissive={presence === "complete" ? palette.good : palette.accent}
-                emissiveIntensity={selected ? 0.28 : presence === "complete" ? 0.16 : 0.05}
+                emissiveIntensity={selected ? 0.28 : hasActiveTask ? 0.24 : presence === "complete" ? 0.16 : 0.05}
               />
             )}
           </mesh>

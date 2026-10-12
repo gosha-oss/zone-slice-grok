@@ -81,6 +81,29 @@ button {
   background: color-mix(in srgb, var(--bh-ink) 8%, transparent);
 }
 
+.bh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+}
+
+.bh-field input,
+.bh-field select,
+.bh-field textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--bh-line);
+  background: color-mix(in srgb, var(--bh-bg) 72%, transparent);
+  color: var(--bh-ink);
+  padding: 0.55rem 0.7rem;
+}
+
+.bh-field textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
 .bh-segment {
   display: inline-flex;
   border: 1px solid var(--bh-line);
