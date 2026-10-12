@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Literata Variable", Palatino, "Palatino Linotype", Georgia, serif;
+  --font-serif: "Literata Variable", Palatino, "Palatino Linotype", Georgia, serif;
+  --color-canvas: var(--bh-bg);
+  --color-ink: var(--bh-ink);
+  --color-muted: var(--bh-muted);
+  --color-accent: var(--bh-accent);
+  --color-line: var(--bh-line);
+  --color-good: var(--bh-good);
+  --color-warn: var(--bh-warn);
+  --color-bad: var(--bh-bad);
+  --color-surface: var(--bh-surface);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--bh-bg, #08090d);
+  color: var(--bh-ink, #ebe6dc);
+  font-family: var(--font-sans);
+  font-weight: 440;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--bh-accent);
+  outline-offset: 3px;
+}
+
+.bh-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0 1.05rem;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background-color 180ms ease, filter 180ms ease;
+}
+
+.bh-button-primary {
+  background: var(--bh-accent);
+  color: var(--bh-on-accent);
+}
+
+.bh-button-primary:hover {
+  filter: brightness(1.08);
+}
+
+.bh-button-ghost {
+  border: 1px solid var(--bh-line);
+  background: color-mix(in srgb, var(--bh-bg) 42%, transparent);
+  color: var(--bh-ink);
+}
+
+.bh-button-ghost:hover {
+  background: color-mix(in srgb, var(--bh-ink) 8%, transparent);
+}
+
+.bh-segment {
+  display: inline-flex;
+  border: 1px solid var(--bh-line);
+  background: color-mix(in srgb, var(--bh-bg) 50%, transparent);
+}
+
+.bh-segment button {
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  color: var(--bh-muted);
+  background: transparent;
+}
+
+.bh-segment button[aria-checked="true"] {
+  background: var(--bh-accent);
+  color: var(--bh-on-accent);
+}
+
+.bh-panel {
+  border: 1px solid var(--bh-line);
+  background: var(--bh-surface);
+  box-shadow: var(--bh-shadow);
+  backdrop-filter: blur(18px);
+  animation: bh-rise 420ms ease;
+}
+
+.bh-meter {
+  height: 0.35rem;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bh-ink) 16%, transparent);
+}
+
+.bh-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--bh-accent);
+}
+
+.landing-scrim {
+  background:
+    linear-gradient(90deg, var(--bh-bg) 0%, color-mix(in srgb, var(--bh-bg) 78%, transparent) 38%, transparent 68%),
+    linear-gradient(180deg, transparent 45%, color-mix(in srgb, var(--bh-bg) 88%, transparent) 100%);
+}
+
+.explore-scrim {
+  background: linear-gradient(
+    270deg,
+    var(--bh-bg) 0%,
+    color-mix(in srgb, var(--bh-bg) 72%, transparent) 34%,
+    transparent 68%
+  );
+}
+
+.top-fade {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bh-bg) 78%, transparent), transparent);
+}
+
+@keyframes bh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing-scrim,
+  .explore-scrim {
+    background: linear-gradient(
+      180deg,
+      transparent 18%,
+      color-mix(in srgb, var(--bh-bg) 78%, transparent) 52%,
+      var(--bh-bg) 100%
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090d" />
+    <meta
+      name="description"
+      content="BuildHub — цифровое пространство проекта. Демонстрационный прототип без аккаунта и без сервера."
+    />
+    <title>BuildHub</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #08090d;
+      }
+      html[data-theme="light"] {
+        background: #e5dfd3;
+      }
+      html[data-theme="graphite"] {
+        background: #15171a;
+      }
+    </style>
+    <script>
+      try {
+        var theme = localStorage.getItem("buildhub-theme");
+        if (theme !== "light" && theme !== "graphite") theme = "abyss";
+        document.documentElement.dataset.theme = theme;
+        var bg = theme === "light" ? "#e5dfd3" : theme === "graphite" ? "#15171a" : "#08090d";
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", bg);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
