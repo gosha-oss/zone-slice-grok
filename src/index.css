@@ -107,17 +107,28 @@ button {
 .bh-tabs {
   display: flex;
   flex-shrink: 0;
-  gap: 0.25rem;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  overflow: visible;
 }
 
 .bh-tabs button {
   min-height: 2.75rem;
   flex: 0 0 auto;
-  padding: 0 0.7rem;
+  white-space: nowrap;
+  padding: 0 0.75rem;
   border: 1px solid var(--bh-line);
   color: var(--bh-muted);
   background: transparent;
+}
+
+@media (max-width: 639px) {
+  .bh-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 0.2rem;
+  }
 }
 
 .bh-tabs button[aria-selected="true"] {
