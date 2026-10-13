@@ -113,6 +113,9 @@ export function Workspace({
         <RotateCcw aria-hidden="true" className="h-4 w-4" />
         Общий вид
       </button>
+      <button type="button" className="bh-button bh-button-ghost mt-2 shrink-0" onClick={() => navigate("/world")}>
+        К пространству
+      </button>
     </aside>
   );
 }

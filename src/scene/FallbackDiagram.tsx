@@ -11,12 +11,23 @@ const TONE_COLOR = {
 } as const;
 
 export function FallbackDiagram({
+  mode,
   project,
   selection,
   onSelect,
   interactive,
   quality,
 }: AbyssSceneProps) {
+  if (mode === "world") {
+    return (
+      <div className="relative h-full w-full" style={{ background: "var(--bh-bg, #08090d)" }}>
+        <p className="absolute top-28 right-4 left-4 text-center text-sm leading-relaxed text-muted sm:top-24">
+          WebGL недоступен. Полёт по пространству не включается. Проекты и каталог открываются как прежде.
+        </p>
+      </div>
+    );
+  }
+
   const progress = progressPercent(project.stages.flatMap((stage) => stage.tasks));
   const safe = Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0;
   const rings = quality === "high" ? 4 : 2;

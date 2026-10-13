@@ -2,8 +2,10 @@ import { Component, type ReactNode } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { useEffect } from "react";
 import { THEME_TOKENS } from "../theme/tokens";
+import { AbyssWorld } from "./AbyssWorld";
 import { CameraRig } from "./CameraRig";
 import { FallbackDiagram } from "./FallbackDiagram";
+import { FlightRig } from "./FlightRig";
 import { ProjectField } from "./ProjectField";
 import type { SceneMode } from "./poses";
 import type { AbyssSceneProps } from "./types";
@@ -43,7 +45,9 @@ function CanvasLabel({ mode, projectName }: { mode: SceneMode; projectName: stri
       "aria-label",
       mode === "universe"
         ? `Пространство проекта ${projectName}. Выберите объект мышью или пальцем.`
-        : "Живая сцена Digital Abyss",
+        : mode === "world"
+          ? "Пространство Digital Abyss. WASD перемещает камеру, мышь поворачивает взгляд, Esc отпускает мышь."
+          : "Живая сцена Digital Abyss",
     );
   }, [gl, mode, projectName]);
   return null;
@@ -60,27 +64,32 @@ function FrameWatcher({ token }: { token: string }) {
 function SceneWorld(props: AbyssSceneProps) {
   const palette = THEME_TOKENS[props.theme].scene;
   const token = `${props.theme}:${props.quality}:${props.mode}:${props.selection.kind}:${props.compact ? "c" : "w"}`;
+  const fogDensity = props.mode === "universe" ? palette.fogDensity : palette.fogDensity * 0.48;
 
   return (
     <>
       <color attach="background" args={[palette.background]} />
-      <fogExp2 attach="fog" args={[palette.fog, palette.fogDensity]} />
+      <fogExp2 attach="fog" args={[palette.fog, fogDensity]} />
       <hemisphereLight args={[palette.hemiSky, palette.hemiGround, palette.hemiIntensity]} />
       <ambientLight intensity={palette.ambient} />
       <directionalLight position={[5.5, 7.2, 3.4]} intensity={palette.keyIntensity} color={palette.key} />
       {props.quality === "high" && (
         <directionalLight position={[-6, 2.4, -3.2]} intensity={palette.rimIntensity} color={palette.rim} />
       )}
-      <ProjectField
-        project={props.project}
-        palette={palette}
-        quality={props.quality}
-        reducedMotion={props.reducedMotion}
-        interactive={props.interactive}
-        selection={props.selection}
-        onSelect={props.onSelect}
-        showLabels={props.mode === "universe"}
-      />
+      {props.mode === "universe" ? (
+        <ProjectField
+          project={props.project}
+          palette={palette}
+          quality={props.quality}
+          reducedMotion={props.reducedMotion}
+          interactive={props.interactive}
+          selection={props.selection}
+          onSelect={props.onSelect}
+          showLabels
+        />
+      ) : (
+        <AbyssWorld palette={palette} quality={props.quality} reducedMotion={props.reducedMotion} />
+      )}
       <CameraRig
         mode={props.mode}
         compact={props.compact}
@@ -88,6 +97,7 @@ function SceneWorld(props: AbyssSceneProps) {
         interactive={props.interactive}
         sceneApi={props.sceneApi}
       />
+      <FlightRig active={props.mode === "world"} reducedMotion={props.reducedMotion} sceneApi={props.sceneApi} />
       <Exposure value={palette.exposure} />
       <CanvasLabel mode={props.mode} projectName={props.project.name} />
       <FrameWatcher token={token} />
@@ -95,15 +105,15 @@ function SceneWorld(props: AbyssSceneProps) {
   );
 }
 
-/** The only WebGL owner in the app. Landing and the project space share this canvas. */
+/** The only WebGL owner in the app. Landing, free flight, and a project share this canvas. */
 export function AbyssScene(props: AbyssSceneProps) {
   const scene = props.webgl ? (
     <SceneErrorBoundary fallback={<FallbackDiagram {...props} />}>
       <Canvas
         dpr={props.quality === "high" ? [1, 1.6] : 1}
-        frameloop={props.reducedMotion ? "demand" : "always"}
+        frameloop={props.reducedMotion && props.mode !== "world" ? "demand" : "always"}
         gl={{ antialias: true, alpha: false, powerPreference: "default" }}
-        camera={{ fov: 36, near: 0.1, far: 60, position: [-1.45, 1.9, 8.5] }}
+        camera={{ fov: 36, near: 0.1, far: 120, position: [0.8, 3.6, 15.5] }}
         style={{ width: "100%", height: "100%" }}
       >
         <SceneWorld {...props} />

@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 
 export type AppLocation =
   | { kind: "landing" }
+  | { kind: "world" }
   | { kind: "explore"; projectId: string | null }
   | { kind: "create" }
   | { kind: "space"; projectId: string | null };
@@ -27,6 +28,7 @@ export function normalizePath(pathname: string): string {
 export function parseLocation(pathname: string): AppLocation {
   const path = normalizePath(pathname);
   if (path === "/" || path === "") return { kind: "landing" };
+  if (path === "/world") return { kind: "world" };
   if (path === "/explore") return { kind: "explore", projectId: null };
   if (path.startsWith("/explore/")) {
     const id = decodeURIComponent(path.slice("/explore/".length));
@@ -43,7 +45,7 @@ export function parseLocation(pathname: string): AppLocation {
 
 export function isKnownPath(pathname: string): boolean {
   const path = normalizePath(pathname);
-  if (path === "/" || path === "/explore" || path === "/new" || path === "/space") return true;
+  if (path === "/" || path === "/world" || path === "/explore" || path === "/new" || path === "/space") return true;
   if (path.startsWith("/explore/")) {
     const exploreId = path.slice("/explore/".length);
     return exploreId.length > 0 && !exploreId.includes("/");

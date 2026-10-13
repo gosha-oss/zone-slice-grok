@@ -14,7 +14,7 @@ export function Landing() {
         Пространство, в котором продукт собирается из этапов и задач.
       </p>
       <div className="pointer-events-auto mt-8 flex w-full max-w-md flex-col gap-3 sm:flex-row">
-        <Link to="/space" className="bh-button bh-button-primary w-full sm:w-auto">
+        <Link to="/world" className="bh-button bh-button-primary w-full sm:w-auto">
           Войти в пространство
           <ArrowRight aria-hidden="true" className="h-4 w-4" />
         </Link>

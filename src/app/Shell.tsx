@@ -4,6 +4,7 @@ import { PublicProjectPage } from "../features/community/PublicProjectPage";
 import { CreateProjectForm } from "../features/projects/CreateProjectForm";
 import { Landing } from "../features/projects/Landing";
 import { ProjectUniverse } from "../features/projects/ProjectUniverse";
+import { WorldDock } from "../features/world/WorldDock";
 import { useDemoData } from "../features/projects/demo-data-context";
 import { useMediaQuery, usePrefersReducedMotion } from "../lib/useMediaQuery";
 import { AbyssScene } from "../scene/AbyssScene";
@@ -65,13 +66,15 @@ export function Shell() {
     const title =
       location.kind === "create"
         ? "Новый проект — BuildHub"
-        : location.kind === "explore"
-          ? exploreProject
-            ? `${exploreProject.name} — Каталог`
-            : "Каталог — BuildHub"
-          : project
-            ? `${project.name} — BuildHub`
-            : "BuildHub";
+        : location.kind === "world"
+          ? "Пространство — BuildHub"
+          : location.kind === "explore"
+            ? exploreProject
+              ? `${exploreProject.name} — Каталог`
+              : "Каталог — BuildHub"
+            : project
+              ? `${project.name} — BuildHub`
+              : "BuildHub";
     document.title = title;
   }, [exploreProject, location.kind, project]);
 
@@ -82,16 +85,18 @@ export function Shell() {
 
   const sceneProject = project ?? data.projects[0];
   const showUniverse = location.kind === "space" && project !== undefined;
+  const showWorld = location.kind === "world";
+  const sceneMode = showUniverse ? "universe" : showWorld ? "world" : "landing";
 
   return (
     <div className="relative h-dvh overflow-hidden text-ink">
       <AbyssScene
-        mode={showUniverse ? "universe" : "landing"}
+        mode={sceneMode}
         theme={theme}
         quality={quality}
         reducedMotion={reducedMotion}
         compact={compact}
-        interactive={showUniverse}
+        interactive={showUniverse || showWorld}
         project={sceneProject}
         selection={selection}
         onSelect={setSelection}
@@ -103,7 +108,7 @@ export function Shell() {
         {(location.kind === "explore" || location.kind === "create" || missingProject) && (
           <div className="explore-scrim absolute inset-0" />
         )}
-        {showUniverse && <div className="top-fade absolute inset-x-0 top-0 h-28" />}
+        {(showUniverse || showWorld) && <div className="top-fade absolute inset-x-0 top-0 h-28" />}
         <header className="relative z-40 flex flex-col gap-2 px-4 py-2.5 sm:gap-3 sm:px-5 sm:py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6">
           <div className="flex items-center justify-between gap-3">
             {location.kind === "landing" ? (
@@ -130,6 +135,7 @@ export function Shell() {
         </header>
         <main className="relative min-h-0 flex-1">
           {location.kind === "landing" && <Landing />}
+          {showWorld && <WorldDock projects={data.projects} sceneApi={sceneApi} />}
           {location.kind === "explore" && location.projectId === null && <Catalog />}
           {location.kind === "explore" && location.projectId !== null && (
             <PublicProjectPage projectId={location.projectId} />

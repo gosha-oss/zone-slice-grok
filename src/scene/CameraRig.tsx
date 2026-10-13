@@ -31,7 +31,7 @@ export function CameraRig({ mode, compact, reducedMotion, interactive, sceneApi 
     reducedRef.current = reducedMotion;
     interactiveRef.current = interactive;
     if (entered) {
-      intro.current = true;
+      intro.current = mode !== "world";
       if (controlsRef.current) controlsRef.current.enabled = false;
     }
     invalidate();
@@ -101,6 +101,7 @@ export function CameraRig({ mode, compact, reducedMotion, interactive, sceneApi 
   }, [camera, gl, invalidate]);
 
   useEffect(() => {
+    if (mode === "world") return;
     sceneApi.current = {
       resetView() {
         intro.current = true;
@@ -125,11 +126,15 @@ export function CameraRig({ mode, compact, reducedMotion, interactive, sceneApi 
     return () => {
       sceneApi.current = null;
     };
-  }, [invalidate, sceneApi]);
+  }, [invalidate, mode, sceneApi]);
 
   useFrame((_, delta) => {
     const controls = controlsRef.current;
     if (!controls) return;
+    if (modeRef.current === "world") {
+      controls.enabled = false;
+      return;
+    }
     const pose = poseFor(modeRef.current, compactRef.current);
 
     if (intro.current) {
