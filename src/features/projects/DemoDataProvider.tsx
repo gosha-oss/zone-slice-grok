@@ -6,6 +6,7 @@ import {
   loadStore,
   rememberProject,
   saveStore,
+  setStageDependency,
   updateTask,
   type DemoStore,
 } from "../../services/demoStore";
@@ -33,11 +34,21 @@ export function DemoDataProvider({ children }: { children: ReactNode }) {
   );
 
   const addStageAction = useCallback(
-    (projectId: string, name: string) => {
-      const result = addStage(storeRef.current, projectId, name);
+    (projectId: string, name: string, dependsOn?: string[]) => {
+      const result = addStage(storeRef.current, projectId, name, dependsOn ?? []);
       if ("error" in result) return result;
       commit(result.store);
       return { stageId: result.stageId };
+    },
+    [commit],
+  );
+
+  const setStageDependencyAction = useCallback(
+    (projectId: string, stageId: string, dependsOn: string[]) => {
+      const result = setStageDependency(storeRef.current, projectId, stageId, dependsOn);
+      if ("error" in result) return result;
+      commit(result.store);
+      return { ok: true as const };
     },
     [commit],
   );
@@ -79,6 +90,7 @@ export function DemoDataProvider({ children }: { children: ReactNode }) {
         persistError,
         createProject,
         addStage: addStageAction,
+        setStageDependency: setStageDependencyAction,
         addTask: addTaskAction,
         updateTask: updateTaskAction,
         remember,

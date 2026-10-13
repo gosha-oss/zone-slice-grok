@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import type { SceneHandle } from "../../scene/types";
 import type { Project, Selection } from "../../types/project";
-import { ProjectPanel } from "./ProjectPanel";
+import { Workspace } from "../workspace/Workspace";
 
 export function ProjectUniverse({
   project,
@@ -11,7 +11,6 @@ export function ProjectUniverse({
   webgl,
   quality,
   coarsePointer,
-  reducedMotion,
   sceneApi,
 }: {
   project: Project;
@@ -21,7 +20,6 @@ export function ProjectUniverse({
   webgl: boolean;
   quality: "high" | "low";
   coarsePointer: boolean;
-  reducedMotion: boolean;
   sceneApi: RefObject<SceneHandle | null>;
 }) {
   useEffect(() => {
@@ -84,7 +82,7 @@ export function ProjectUniverse({
   }, [onReset, onSelect, project, sceneApi]);
 
   return (
-    <ProjectPanel
+    <Workspace
       project={project}
       selection={selection}
       onSelect={onSelect}
@@ -92,7 +90,6 @@ export function ProjectUniverse({
       webgl={webgl}
       quality={quality}
       coarsePointer={coarsePointer}
-      reducedMotion={reducedMotion}
     />
   );
 }

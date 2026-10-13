@@ -135,7 +135,6 @@ export function Shell() {
               webgl={webgl}
               quality={quality}
               coarsePointer={coarsePointer}
-              reducedMotion={reducedMotion}
               sceneApi={sceneApi}
             />
           )}

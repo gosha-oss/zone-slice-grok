@@ -6,7 +6,8 @@ export type DemoData = {
   lastProjectId: string;
   persistError: string | null;
   createProject: (input: NewProjectInput) => Project;
-  addStage: (projectId: string, name: string) => { stageId: string } | { error: string };
+  addStage: (projectId: string, name: string, dependsOn?: string[]) => { stageId: string } | { error: string };
+  setStageDependency: (projectId: string, stageId: string, dependsOn: string[]) => { error: string } | { ok: true };
   addTask: (projectId: string, stageId: string, draft: TaskDraft) => { taskId: string } | { error: string };
   updateTask: (projectId: string, stageId: string, taskId: string, draft: TaskDraft) => { error: string } | { ok: true };
   remember: (projectId: string) => void;

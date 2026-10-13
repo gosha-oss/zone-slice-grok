@@ -1,5 +1,10 @@
 import { createId } from "../lib/ids";
+import { isStageComplete } from "../lib/progress";
+import { STATUS_LABEL } from "../lib/taskVisual";
 import type {
+  ActivityEvent,
+  ActivityKind,
+  DemoFile,
   NewProjectInput,
   Person,
   Priority,
@@ -67,10 +72,19 @@ export function buildProject(input: NewProjectInput): Project {
     projectType: input.projectType,
     visibility: input.visibility,
     participants: demoParticipants(),
+    files: [
+      {
+        id: createId("file"),
+        name: "Заметка.md",
+        note: "Локальная демо-запись. Файл не загружался в хранилище.",
+      },
+    ],
+    activity: [],
     stages: [
       {
         id: createId("stage"),
         name: input.initialStage.trim(),
+        dependsOn: [],
         tasks: [],
       },
     ],
@@ -79,6 +93,11 @@ export function buildProject(input: NewProjectInput): Project {
 
 export function addProject(store: DemoStore, input: NewProjectInput): DemoStore & { created: Project } {
   const created = buildProject(input);
+  const stage = created.stages[0];
+  created.activity = [
+    makeEvent("stage_created", stage ? `Создан этап «${stage.name}».` : "Создан начальный этап."),
+    makeEvent("participants_seeded", "В проект подставлен локальный список участников. Приглашения не отправлялись."),
+  ];
   return {
     version: 1,
     lastProjectId: created.id,
@@ -97,6 +116,7 @@ export function addStage(
   store: DemoStore,
   projectId: string,
   name: string,
+  dependsOn: string[] = [],
 ): { store: DemoStore; stageId: string } | { error: string } {
   const title = name.trim();
   if (!title) return { error: "Нужно название этапа." };
@@ -106,11 +126,35 @@ export function addStage(
     return { error: `Новый этап недоступен: в сцене уже ${MAX_STAGES}.` };
   }
   const stageId = createId("stage");
+  const dependencyError = dependencyErrorFor(project.stages, stageId, dependsOn);
+  if (dependencyError) return { error: dependencyError };
   return {
     stageId,
     store: mapProject(store, projectId, (current) => ({
       ...current,
-      stages: [...current.stages, { id: stageId, name: title, tasks: [] }],
+      activity: [makeEvent("stage_created", `Создан этап «${title}».`), ...current.activity],
+      stages: [...current.stages, { id: stageId, name: title, dependsOn, tasks: [] }],
+    })),
+  };
+}
+
+export function setStageDependency(
+  store: DemoStore,
+  projectId: string,
+  stageId: string,
+  dependsOn: string[],
+): { store: DemoStore } | { error: string } {
+  const project = store.projects.find((item) => item.id === projectId);
+  const stage = project?.stages.find((item) => item.id === stageId);
+  if (!project || !stage) return { error: "Этап не найден." };
+  const dependencyError = dependencyErrorFor(project.stages, stageId, dependsOn);
+  if (dependencyError) return { error: dependencyError };
+  const same = stage.dependsOn.length === dependsOn.length && stage.dependsOn.every((id, index) => id === dependsOn[index]);
+  if (same) return { store };
+  return {
+    store: mapProject(store, projectId, (current) => ({
+      ...current,
+      stages: current.stages.map((item) => (item.id === stageId ? { ...item, dependsOn } : item)),
     })),
   };
 }
@@ -129,13 +173,19 @@ export function addTask(
   }
   const task = taskFromDraft(createId("task"), draft, project);
   if (!task) return { error: "Нужно название задачи." };
+  const wasComplete = isStageComplete(stage);
+  const nextTasks = [...stage.tasks, task];
   return {
     taskId: task.id,
     store: mapProject(store, projectId, (current) => ({
       ...current,
-      stages: current.stages.map((item) =>
-        item.id === stageId ? { ...item, tasks: [...item.tasks, task] } : item,
-      ),
+      activity: activityAfterTaskChange(current.activity, {
+        createdTitle: task.title,
+        stageName: stage.name,
+        wasComplete,
+        isComplete: isStageComplete({ tasks: nextTasks }),
+      }),
+      stages: current.stages.map((item) => (item.id === stageId ? { ...item, tasks: nextTasks } : item)),
     })),
   };
 }
@@ -153,16 +203,74 @@ export function updateTask(
   if (!project || !stage || !existing) return { error: "Задача не найдена." };
   const task = taskFromDraft(existing.id, draft, project);
   if (!task) return { error: "Нужно название задачи." };
+  const wasComplete = isStageComplete(stage);
+  const nextTasks = stage.tasks.map((entry) => (entry.id === taskId ? task : entry));
   return {
     store: mapProject(store, projectId, (current) => ({
       ...current,
-      stages: current.stages.map((item) =>
-        item.id === stageId
-          ? { ...item, tasks: item.tasks.map((entry) => (entry.id === taskId ? task : entry)) }
-          : item,
-      ),
+      activity: activityAfterTaskChange(current.activity, {
+        stageName: stage.name,
+        wasComplete,
+        isComplete: isStageComplete({ tasks: nextTasks }),
+        statusChange:
+          existing.status === task.status
+            ? undefined
+            : { title: task.title, from: existing.status, to: task.status },
+      }),
+      stages: current.stages.map((item) => (item.id === stageId ? { ...item, tasks: nextTasks } : item)),
     })),
   };
+}
+
+function activityAfterTaskChange(
+  activity: ActivityEvent[],
+  change: {
+    createdTitle?: string;
+    stageName: string;
+    wasComplete: boolean;
+    isComplete: boolean;
+    statusChange?: { title: string; from: TaskStatus; to: TaskStatus };
+  },
+): ActivityEvent[] {
+  const next = [...activity];
+  if (change.createdTitle) {
+    next.unshift(makeEvent("task_created", `Создана задача «${change.createdTitle}» в этапе «${change.stageName}».`));
+  }
+  if (change.statusChange) {
+    const { title, from, to } = change.statusChange;
+    next.unshift(makeEvent("status_changed", `«${title}»: ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}.`));
+  }
+  if (!change.wasComplete && change.isComplete) {
+    next.unshift(makeEvent("stage_completed", `Этап «${change.stageName}» закрыт: все его задачи готовы.`));
+  }
+  return next;
+}
+
+function makeEvent(kind: ActivityKind, summary: string): ActivityEvent {
+  return { id: createId("event"), at: new Date().toISOString(), kind, summary };
+}
+
+function dependencyErrorFor(stages: Stage[], stageId: string, dependsOn: string[]): string | null {
+  if (dependsOn.includes(stageId)) return "Этап не может зависеть от себя.";
+  if (dependsOn.some((id) => !stages.some((stage) => stage.id === id))) return "Такого этапа-зависимости нет.";
+  if (hasCycle(stages, stageId, dependsOn)) return "Такая зависимость замыкает цикл.";
+  return null;
+}
+
+function hasCycle(stages: Stage[], stageId: string, dependsOn: string[]): boolean {
+  const links = new Map(stages.map((stage) => [stage.id, stage.dependsOn]));
+  links.set(stageId, dependsOn);
+  const visiting = new Set<string>();
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    visiting.add(id);
+    for (const next of links.get(id) ?? []) {
+      if (visit(next)) return true;
+    }
+    visiting.delete(id);
+    return false;
+  };
+  return visit(stageId);
 }
 
 function mapProject(store: DemoStore, projectId: string, update: (project: Project) => Project): DemoStore {
@@ -216,6 +324,8 @@ function parseProject(value: unknown): Project | null {
     visibility,
     stages,
     participants: parsePeople(value.participants),
+    activity: parseActivity(value.activity, value.id),
+    files: parseFiles(value.files, value.id),
   };
 }
 
@@ -224,7 +334,10 @@ function parseStage(value: unknown): Stage | null {
   const tasks = Array.isArray(value.tasks)
     ? value.tasks.map(parseTask).filter((task): task is Task => task !== null)
     : [];
-  return { id: value.id, name: value.name, tasks };
+  const dependsOn = Array.isArray(value.dependsOn)
+    ? value.dependsOn.filter((id): id is string => typeof id === "string")
+    : defaultDependency(value.id);
+  return { id: value.id, name: value.name, tasks, dependsOn };
 }
 
 function parseTask(value: unknown): Task | null {
@@ -237,6 +350,54 @@ function parseTask(value: unknown): Task | null {
   const due = typeof value.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.due) ? value.due : undefined;
   const assigneeId = typeof value.assigneeId === "string" ? value.assigneeId : undefined;
   return { id: value.id, title: value.title, status: value.status as TaskStatus, priority, assigneeId, due };
+}
+
+function defaultDependency(stageId: string): string[] {
+  if (stageId === "structure") return ["foundation"];
+  if (stageId === "signal") return ["structure"];
+  if (stageId === "horizon") return ["signal"];
+  return [];
+}
+
+function parseActivity(value: unknown, projectId: string): ActivityEvent[] {
+  if (!Array.isArray(value)) {
+    return [
+      {
+        id: `participants-${projectId}`,
+        at: "2026-10-01T09:00:00.000Z",
+        kind: "participants_seeded",
+        summary: "В проект подставлен локальный список участников. Приглашения не отправлялись.",
+      },
+    ];
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.at !== "string" || typeof item.summary !== "string") {
+      return [];
+    }
+    if (
+      item.kind !== "task_created" &&
+      item.kind !== "status_changed" &&
+      item.kind !== "stage_completed" &&
+      item.kind !== "stage_created" &&
+      item.kind !== "participants_seeded"
+    ) {
+      return [];
+    }
+    return [{ id: item.id, at: item.at, kind: item.kind, summary: item.summary }];
+  });
+}
+
+function parseFiles(value: unknown, projectId: string): DemoFile[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string" || typeof item.note !== "string") {
+        return [];
+      }
+      return [{ id: item.id, name: item.name, note: item.note }];
+    });
+  }
+  if (projectId === "lumen-archive") return createSeedProject().files;
+  return [];
 }
 
 function parsePeople(value: unknown): Person[] {

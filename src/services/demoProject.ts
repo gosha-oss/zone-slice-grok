@@ -12,10 +12,23 @@ export function createSeedProject(): Project {
     projectType: "Приложение",
     visibility: "private",
     participants: demoParticipants(),
+    files: [
+      { id: "lumen-map", name: "Карта решений.md", note: "Локальная демо-запись. Файл не загружался в хранилище." },
+      { id: "lumen-notes", name: "Заметки к цели.txt", note: "Локальная демо-запись. Файл не загружался в хранилище." },
+    ],
+    activity: [
+      {
+        id: "lumen-people",
+        at: "2026-10-01T09:00:00.000Z",
+        kind: "participants_seeded",
+        summary: "В проект подставлен локальный список участников. Приглашения не отправлялись.",
+      },
+    ],
     stages: [
       {
         id: "foundation",
         name: "Основа",
+        dependsOn: [],
         tasks: [
           {
             id: "goal",
@@ -36,6 +49,7 @@ export function createSeedProject(): Project {
       {
         id: "structure",
         name: "Структура",
+        dependsOn: ["foundation"],
         tasks: [
           {
             id: "stages",
@@ -62,6 +76,7 @@ export function createSeedProject(): Project {
       {
         id: "signal",
         name: "Сигнал",
+        dependsOn: ["structure"],
         tasks: [
           {
             id: "review",
@@ -83,6 +98,7 @@ export function createSeedProject(): Project {
       {
         id: "horizon",
         name: "Горизонт",
+        dependsOn: ["signal"],
         tasks: [
           {
             id: "access",

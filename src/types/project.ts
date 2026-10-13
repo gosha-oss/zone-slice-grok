@@ -25,6 +25,23 @@ export type Stage = {
   id: string;
   name: string;
   tasks: Task[];
+  /** Ids of stages that must be complete before this one. Empty means no dependency. */
+  dependsOn: string[];
+};
+
+export type ActivityKind = "task_created" | "status_changed" | "stage_completed" | "stage_created" | "participants_seeded";
+
+export type ActivityEvent = {
+  id: string;
+  at: string;
+  kind: ActivityKind;
+  summary: string;
+};
+
+export type DemoFile = {
+  id: string;
+  name: string;
+  note: string;
 };
 
 export type Project = {
@@ -37,6 +54,8 @@ export type Project = {
   visibility: Visibility;
   stages: Stage[];
   participants: Person[];
+  activity: ActivityEvent[];
+  files: DemoFile[];
 };
 
 export type Selection =

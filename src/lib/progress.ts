@@ -49,6 +49,19 @@ export function nearestStage(project: Project): Stage | undefined {
   return project.stages.find((stage) => progressPercent(stage.tasks) < 100);
 }
 
+/** A stage is complete only when it has tasks and every one of them is done. */
+export function isStageComplete(stage: { tasks: readonly { status: TaskStatus }[] }): boolean {
+  return stage.tasks.length > 0 && stage.tasks.every((task) => task.status === "done");
+}
+
+export function blockingStageNames(project: Project, stage: Stage): string[] {
+  return stage.dependsOn.flatMap((id) => {
+    const dependency = project.stages.find((item) => item.id === id);
+    if (!dependency || isStageComplete(dependency)) return [];
+    return [dependency.name];
+  });
+}
+
 export function formatDue(iso: string): string {
   const [year, month, day] = iso.split("-");
   if (!year || !month || !day) return iso;

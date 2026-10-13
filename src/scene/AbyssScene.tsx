@@ -36,16 +36,16 @@ function Exposure({ value }: { value: number }) {
   return null;
 }
 
-function CanvasLabel({ mode }: { mode: SceneMode }) {
+function CanvasLabel({ mode, projectName }: { mode: SceneMode; projectName: string }) {
   const gl = useThree((state) => state.gl);
   useEffect(() => {
     gl.domElement.setAttribute(
       "aria-label",
       mode === "universe"
-        ? "Пространство проекта Архив Люмен. Выберите объект мышью или пальцем."
+        ? `Пространство проекта ${projectName}. Выберите объект мышью или пальцем.`
         : "Живая сцена Digital Abyss",
     );
-  }, [gl, mode]);
+  }, [gl, mode, projectName]);
   return null;
 }
 
@@ -89,7 +89,7 @@ function SceneWorld(props: AbyssSceneProps) {
         sceneApi={props.sceneApi}
       />
       <Exposure value={palette.exposure} />
-      <CanvasLabel mode={props.mode} />
+      <CanvasLabel mode={props.mode} projectName={props.project.name} />
       <FrameWatcher token={token} />
     </>
   );
