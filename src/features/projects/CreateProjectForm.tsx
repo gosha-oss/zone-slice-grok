@@ -42,8 +42,8 @@ export function CreateProjectForm() {
         <p className="text-xs tracking-[0.16em] text-muted uppercase">Демонстрационный режим</p>
         <h1 className="font-serif text-4xl tracking-[-0.03em]">Новый проект</h1>
         <p className="text-sm leading-relaxed text-muted">
-          После создания откроется его пространство. Данные останутся в этом браузере. Входа и каталога
-          сообщества здесь нет.
+          После создания откроется его пространство. Запись останется в этом браузере. Аккаунта нет, и данные
+          никуда не отправляются.
         </p>
         <label className="bh-field">
           Название
@@ -102,7 +102,8 @@ export function CreateProjectForm() {
             Публичный
           </label>
           <p className="text-xs leading-relaxed text-muted">
-            Публичность только сохраняется локально. Каталог сообщества ещё не подключён.
+            Публичный проект попадает в каталог этого браузера. Приватный в каталог не попадает. Отправки в сеть
+            нет.
           </p>
         </fieldset>
         <label className="bh-field">

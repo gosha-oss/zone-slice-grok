@@ -104,6 +104,28 @@ button {
   resize: vertical;
 }
 
+.bh-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.15rem;
+}
+
+.bh-toolbar > * {
+  flex-shrink: 0;
+}
+
+@media (min-width: 640px) {
+  .bh-toolbar {
+    flex-wrap: wrap;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+}
+
 .bh-tabs {
   display: flex;
   flex-shrink: 0;

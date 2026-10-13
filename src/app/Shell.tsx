@@ -120,7 +120,7 @@ export function Shell() {
               <span className="hidden sm:inline">{webgl ? "Демонстрационный режим" : "Демо · без WebGL"}</span>
             </p>
           </div>
-          <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+          <div className="bh-toolbar pointer-events-auto">
             <Link to="/new" className="bh-button bh-button-ghost">
               Новый проект
             </Link>

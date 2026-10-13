@@ -92,7 +92,7 @@ export function Catalog() {
           </p>
           <ul className="mt-3 flex flex-col gap-3">
             {data.posts.map((post) => {
-              const project = results.find((item) => item.id === post.projectId);
+              const project = open.find((item) => item.id === post.projectId);
               if (!project) return null;
               return (
                 <li key={post.id} className="border border-line p-3">
