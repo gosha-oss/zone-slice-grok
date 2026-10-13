@@ -64,7 +64,7 @@ function FrameWatcher({ token }: { token: string }) {
 function SceneWorld(props: AbyssSceneProps) {
   const palette = THEME_TOKENS[props.theme].scene;
   const token = `${props.theme}:${props.quality}:${props.mode}:${props.selection.kind}:${props.compact ? "c" : "w"}`;
-  const fogDensity = props.mode === "universe" ? palette.fogDensity : palette.fogDensity * 0.48;
+  const fogDensity = props.mode === "universe" ? palette.fogDensity : palette.fogDensity * 0.58;
 
   return (
     <>

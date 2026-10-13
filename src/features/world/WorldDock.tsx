@@ -32,12 +32,10 @@ export function WorldDock({
   };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex flex-col gap-3 px-4 sm:px-6">
-      <aside className="bh-panel pointer-events-auto w-full max-w-sm p-4">
-        <p className="text-xs tracking-[0.16em] text-muted uppercase">Цифровая бездна</p>
-        <p className="mt-2 text-sm leading-relaxed">Свободный полёт. Проекты открываются отдельно, каталог остаётся списком.</p>
-        <div className="mt-3 flex flex-col gap-2">
-          <label className="bh-field">
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex flex-col items-start gap-2 px-3 sm:px-4">
+      <aside className="bh-panel pointer-events-auto w-full max-w-xl p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="bh-field min-w-0 flex-1">
             Открыть проект
             <select
               value=""
@@ -53,16 +51,20 @@ export function WorldDock({
               ))}
             </select>
           </label>
-          <button type="button" className="bh-button bh-button-ghost" onClick={() => navigate("/explore")}>
+          <button type="button" className="bh-button bh-button-ghost shrink-0" onClick={() => navigate("/explore")}>
             Каталог
           </button>
-          <button type="button" className="bh-button bh-button-ghost" onClick={() => sceneApi.current?.resetView()}>
+          <button
+            type="button"
+            className="bh-button bh-button-ghost shrink-0"
+            onClick={() => sceneApi.current?.resetView()}
+          >
             Сбросить вид
           </button>
         </div>
-        <details className="mt-3">
+        <details className="mt-2">
           <summary className="cursor-pointer text-sm">Скорость и чувствительность</summary>
-          <div className="mt-3 flex flex-col gap-3">
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <label className="bh-field">
               Скорость
               <input
@@ -87,12 +89,11 @@ export function WorldDock({
             </label>
           </div>
         </details>
-        <p className="mt-3 text-xs leading-relaxed text-muted">Esc отпускает мышь. Колесо двигает камеру только над сценой.</p>
       </aside>
       {!hintSeen && (
-        <div className="bh-panel pointer-events-auto flex w-full max-w-xl items-start justify-between gap-3 p-4">
-          <p className="text-sm leading-relaxed">
-            WASD — полёт, Q и E — высота, мышь — взгляд. Колесо приближает, когда указатель на сцене. Esc отпускает мышь.
+        <div className="bh-panel pointer-events-auto flex w-full max-w-xl items-center justify-between gap-3 px-3 py-2">
+          <p className="text-sm leading-snug">
+            WASD — полёт, Q и E — высота, мышь — взгляд. Колесо работает над сценой. Esc отпускает мышь.
           </p>
           <button type="button" className="bh-button bh-button-ghost shrink-0" onClick={dismiss}>
             Понятно

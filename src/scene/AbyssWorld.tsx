@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { CanvasTexture, DoubleSide, type Group, type BufferAttribute } from "three";
+import { CanvasTexture, type BufferAttribute } from "three";
 import type { Quality, ScenePalette } from "../theme/tokens";
 
-const PIERS: readonly { position: readonly [number, number, number]; size: readonly [number, number, number] }[] = [
-  { position: [-10.4, 3.8, 2.2], size: [1.15, 7.6, 1.35] },
-  { position: [10.6, 3.1, 0.4], size: [0.9, 6.2, 2.4] },
-  { position: [-9.8, 4.8, -8.6], size: [1.2, 9.6, 1.2] },
-  { position: [9.4, 2.6, -11.5], size: [2.6, 5.2, 0.7] },
-  { position: [-4.2, 5.4, -15.2], size: [0.85, 10.8, 0.85] },
-  { position: [6.8, 4.2, -15.6], size: [0.7, 8.4, 1.8] },
+type Vec3 = readonly [number, number, number];
+
+const NEAR_PIERS: readonly { position: Vec3; size: Vec3 }[] = [
+  { position: [-2.05, 2.15, 2.85], size: [0.85, 4.3, 1.15] },
+  { position: [2.15, 1.9, 3.35], size: [0.95, 3.8, 1.35] },
+  { position: [-1.15, 0.7, 1.7], size: [1.5, 1.4, 0.7] },
+];
+
+const MIDDLE_PIERS: readonly { position: Vec3; size: Vec3 }[] = [
+  { position: [-4.15, 3.15, -3.35], size: [1.45, 6.3, 1.45] },
+  { position: [4.35, 2.85, -4.15], size: [1.25, 5.7, 1.7] },
+  { position: [-2.2, 4.15, -7.4], size: [0.7, 5.2, 1.8] },
+  { position: [3.1, 3.4, -8.2], size: [1.8, 4.4, 0.75] },
+];
+
+const FAR_JAMBS: readonly { position: Vec3; size: Vec3 }[] = [
+  { position: [-3.55, 3.5, -14.6], size: [1.55, 7, 1.35] },
+  { position: [3.7, 3.7, -14.9], size: [1.35, 7.4, 1.45] },
+  { position: [0.15, 6.55, -15.2], size: [8.4, 0.7, 1.15] },
 ];
 
 function mulberry32(seed: number) {
@@ -25,14 +37,12 @@ function mulberry32(seed: number) {
 function Dust({ color, motion }: { color: string; motion: boolean }) {
   const base = useMemo(() => {
     const random = mulberry32(0x0a11ce);
-    const count = 42;
+    const count = 36;
     const array = new Float32Array(count * 3);
     for (let index = 0; index < count; index += 1) {
-      const radius = 2.2 + random() * 14;
-      const angle = random() * Math.PI * 2;
-      array[index * 3] = Math.cos(angle) * radius * 0.72;
-      array[index * 3 + 1] = 0.6 + random() * 6.2;
-      array[index * 3 + 2] = -4 + Math.sin(angle) * radius * 0.55;
+      array[index * 3] = (random() - 0.5) * 14;
+      array[index * 3 + 1] = 1.2 + random() * 5.4;
+      array[index * 3 + 2] = 4 - random() * 18;
     }
     return array;
   }, []);
@@ -45,7 +55,7 @@ function Dust({ color, motion }: { color: string; motion: boolean }) {
     const time = clock.elapsedTime;
     const count = base.length / 3;
     for (let index = 0; index < count; index += 1) {
-      current.setY(index, base[index * 3 + 1] + Math.sin(time * 0.12 + index * 0.37) * 0.06);
+      current.setY(index, base[index * 3 + 1] + Math.sin(time * 0.12 + index * 0.37) * 0.05);
     }
     current.needsUpdate = true;
   });
@@ -55,12 +65,12 @@ function Dust({ color, motion }: { color: string; motion: boolean }) {
       <bufferGeometry>
         <bufferAttribute ref={attribute} attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial color={color} size={0.045} sizeAttenuation transparent opacity={0.45} depthWrite={false} />
+      <pointsMaterial color={color} size={0.04} sizeAttenuation transparent opacity={0.4} depthWrite={false} />
     </points>
   );
 }
 
-function Wash({ color, quality }: { color: string; quality: Quality }) {
+function Mist({ color, quality }: { color: string; quality: Quality }) {
   const texture = useMemo(() => {
     const size = quality === "high" ? 256 : 128;
     const canvas = document.createElement("canvas");
@@ -70,7 +80,7 @@ function Wash({ color, quality }: { color: string; quality: Quality }) {
     const next = new CanvasTexture(canvas);
     if (context) {
       const radius = size / 2;
-      const gradient = context.createRadialGradient(radius, radius, radius * 0.05, radius, radius, radius);
+      const gradient = context.createRadialGradient(radius, radius, radius * 0.02, radius, radius, radius);
       gradient.addColorStop(0, color);
       gradient.addColorStop(1, "rgba(0,0,0,0)");
       context.fillStyle = gradient;
@@ -83,16 +93,38 @@ function Wash({ color, quality }: { color: string; quality: Quality }) {
   useEffect(() => () => texture.dispose(), [texture]);
 
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, -2]}>
-      <circleGeometry args={[11, quality === "high" ? 48 : 24]} />
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, -8]}>
+      <circleGeometry args={[9, quality === "high" ? 40 : 20]} />
       <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} />
     </mesh>
   );
 }
 
+function Mass({
+  position,
+  size,
+  color,
+  roughness,
+  metalness,
+}: {
+  position: Vec3;
+  size: Vec3;
+  color: string;
+  roughness: number;
+  metalness: number;
+}) {
+  return (
+    <mesh position={position}>
+      <boxGeometry args={[size[0], size[1], size[2]]} />
+      <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} />
+    </mesh>
+  );
+}
+
 /**
- * The open Digital Abyss court. Project objects stay out of this space until a later stage.
- * Forms sit outside the flight bounds so the camera moves through the volume, not through the stone.
+ * Three depths along the flight path: near piers, a middle gate, and a far portal.
+ * Masses stay off the center line so forward flight does not pass through stone.
+ * Project objects are intentionally absent until a later stage.
  */
 export function AbyssWorld({
   palette,
@@ -103,77 +135,78 @@ export function AbyssWorld({
   quality: Quality;
   reducedMotion: boolean;
 }) {
-  const gate = useRef<Group>(null);
   const high = quality === "high";
-  const stone = {
-    color: palette.metal,
-    roughness: Math.min(1, palette.roughness + 0.18),
-    metalness: 0.62,
-  };
-
-  useFrame((_, delta) => {
-    if (!gate.current || reducedMotion) return;
-    gate.current.rotation.y += delta * 0.025;
-  });
+  const mass = Math.min(1, palette.roughness + 0.08);
+  const edge = Math.max(0.28, palette.roughness - 0.08);
 
   return (
     <group>
-      <pointLight position={[1.5, 7.2, 6]} intensity={26} distance={40} decay={2} color={palette.key} />
-      <pointLight position={[0, 3.4, -11]} intensity={9} distance={24} decay={2} color={palette.accent} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -1]}>
-        <ringGeometry args={[2.4, high ? 24 : 20, high ? 72 : 36]} />
-        <meshStandardMaterial color={palette.filament} roughness={0.88} metalness={0.18} side={DoubleSide} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 1.5]}>
-        <circleGeometry args={[7.2, high ? 48 : 24]} />
-        <meshStandardMaterial color={palette.metal} roughness={0.96} metalness={0.08} />
-      </mesh>
-      <Wash color={palette.mist} quality={quality} />
+      <pointLight position={[-5.5, 6.4, 5.5]} intensity={22} distance={28} decay={2} color={palette.key} />
+      <pointLight position={[4.2, 4.8, -2]} intensity={10} distance={18} decay={2} color={palette.key} />
+      <pointLight position={[0, 4.2, -13.5]} intensity={14} distance={20} decay={2} color={palette.accent} />
 
-      <group ref={gate} position={[0, 4.6, -16]}>
-        <mesh>
-          <torusGeometry args={[6.6, 0.11, 12, high ? 80 : 36]} />
-          <meshStandardMaterial
-            color={palette.filament}
-            roughness={0.34}
-            metalness={0.72}
-            emissive={palette.accent}
-            emissiveIntensity={0.08}
-          />
-        </mesh>
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[5.7, 0.03, 8, high ? 64 : 28]} />
-          <meshStandardMaterial color={palette.accent} roughness={0.4} metalness={0.45} />
-        </mesh>
-      </group>
+      <Mass position={[0.2, 0.22, 2.7]} size={[7.2, 0.44, 2.6]} color={palette.filament} roughness={0.72} metalness={0.22} />
+      <Mass position={[-0.4, 0.38, -5.2]} size={[8.6, 0.42, 3.4]} color={palette.metal} roughness={0.78} metalness={0.28} />
+      <Mass position={[0.1, 0.48, -13.6]} size={[9.2, 0.5, 3.8]} color={palette.filament} roughness={0.7} metalness={0.24} />
+      <Mist color={palette.mist} quality={quality} />
 
-      <mesh position={[-2.2, 1.35, -3.4]} rotation={[0.15, 0.5, 0.08]}>
-        <torusGeometry args={[4.4, 0.035, 8, high ? 56 : 28, Math.PI * 1.2]} />
-        <meshStandardMaterial color={palette.filament} roughness={0.42} metalness={0.66} />
-      </mesh>
-      <mesh position={[7.5, 3.1, -9]} rotation={[0.4, -0.3, 0.2]}>
-        <torusGeometry args={[3.1, 0.028, 8, high ? 40 : 20, Math.PI * 0.85]} />
-        <meshStandardMaterial color={palette.metal} roughness={0.5} metalness={0.58} />
-      </mesh>
-
-      {PIERS.map((pier) => (
-        <mesh key={pier.position.join(":")} position={pier.position}>
-          <boxGeometry args={[pier.size[0], pier.size[1], pier.size[2]]} />
-          <meshStandardMaterial {...stone} />
-        </mesh>
+      {NEAR_PIERS.map((pier) => (
+        <Mass
+          key={`near-${pier.position.join(":")}`}
+          position={pier.position}
+          size={pier.size}
+          color={palette.metal}
+          roughness={mass}
+          metalness={0.48}
+        />
       ))}
+      <mesh position={[0.05, 3.85, 2.15]}>
+        <boxGeometry args={[4.6, 0.32, 0.42]} />
+        <meshStandardMaterial color={palette.filament} roughness={edge} metalness={0.58} />
+      </mesh>
 
-      <mesh position={[0.2, 6.6, -7.4]}>
-        <boxGeometry args={[18, 0.18, 0.55]} />
-        <meshStandardMaterial color={palette.filament} roughness={0.46} metalness={0.58} />
+      {MIDDLE_PIERS.map((pier) => (
+        <Mass
+          key={`mid-${pier.position.join(":")}`}
+          position={pier.position}
+          size={pier.size}
+          color={palette.metal}
+          roughness={mass}
+          metalness={0.52}
+        />
+      ))}
+      <mesh position={[0.1, 5.55, -3.7]}>
+        <boxGeometry args={[10.2, 0.55, 0.7]} />
+        <meshStandardMaterial color={palette.filament} roughness={edge} metalness={0.6} />
       </mesh>
-      <mesh position={[-6.4, 7.15, -4]} rotation={[0, 0.15, 0]}>
-        <boxGeometry args={[8.5, 0.14, 0.4]} />
-        <meshStandardMaterial color={palette.accent} roughness={0.42} metalness={0.32} />
+      <mesh position={[0, 3.05, -6.1]}>
+        <torusGeometry args={[2.55, 0.2, 12, high ? 48 : 28]} />
+        <meshStandardMaterial color={palette.filament} roughness={edge} metalness={0.64} />
       </mesh>
-      <mesh position={[4.8, 1.15, -6.5]}>
-        <boxGeometry args={[5.5, 0.28, 2.2]} />
-        <meshStandardMaterial {...stone} />
+
+      {FAR_JAMBS.map((pier) => (
+        <Mass
+          key={`far-${pier.position.join(":")}`}
+          position={pier.position}
+          size={pier.size}
+          color={palette.metal}
+          roughness={mass}
+          metalness={0.5}
+        />
+      ))}
+      <mesh position={[0, 3.45, -16.2]}>
+        <torusGeometry args={[6.1, 0.55, 16, high ? 72 : 36]} />
+        <meshStandardMaterial
+          color={palette.filament}
+          roughness={Math.max(0.3, edge - 0.04)}
+          metalness={0.7}
+          emissive={palette.accent}
+          emissiveIntensity={0.06}
+        />
+      </mesh>
+      <mesh position={[0, 3.45, -17.4]}>
+        <torusGeometry args={[3.15, 0.12, 10, high ? 48 : 24]} />
+        <meshStandardMaterial color={palette.accent} roughness={0.42} metalness={0.4} />
       </mesh>
 
       {high && <Dust color={palette.dust} motion={!reducedMotion} />}
