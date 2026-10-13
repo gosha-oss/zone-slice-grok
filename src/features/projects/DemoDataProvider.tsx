@@ -3,8 +3,11 @@ import {
   addProject,
   addStage,
   addTask,
+  expressInterest,
   loadStore,
+  publishParticipantPost,
   rememberProject,
+  saveJoinRequest,
   saveStore,
   setStageDependency,
   updateTask,
@@ -27,8 +30,9 @@ export function DemoDataProvider({ children }: { children: ReactNode }) {
   const createProject = useCallback(
     (input: NewProjectInput): Project => {
       const next = addProject(storeRef.current, input);
-      commit({ version: 1, lastProjectId: next.lastProjectId, projects: next.projects });
-      return next.created;
+      const { created, ...store } = next;
+      commit(store);
+      return created;
     },
     [commit],
   );
@@ -73,6 +77,36 @@ export function DemoDataProvider({ children }: { children: ReactNode }) {
     [commit],
   );
 
+  const expressInterestAction = useCallback(
+    (projectId: string) => {
+      const result = expressInterest(storeRef.current, projectId);
+      if ("error" in result) return result;
+      if (result.store !== storeRef.current) commit(result.store);
+      return { ok: true as const };
+    },
+    [commit],
+  );
+
+  const requestJoinAction = useCallback(
+    (projectId: string, message: string) => {
+      const result = saveJoinRequest(storeRef.current, projectId, message);
+      if ("error" in result) return result;
+      if (result.store !== storeRef.current) commit(result.store);
+      return { ok: true as const };
+    },
+    [commit],
+  );
+
+  const publishPostAction = useCallback(
+    (projectId: string, role: string, text: string) => {
+      const result = publishParticipantPost(storeRef.current, projectId, role, text);
+      if ("error" in result) return result;
+      commit(result.store);
+      return { ok: true as const };
+    },
+    [commit],
+  );
+
   const remember = useCallback(
     (projectId: string) => {
       const next = rememberProject(storeRef.current, projectId);
@@ -87,12 +121,18 @@ export function DemoDataProvider({ children }: { children: ReactNode }) {
       value={{
         projects: store.projects,
         lastProjectId: store.lastProjectId,
+        interests: store.interests,
+        joinRequests: store.joinRequests,
+        posts: store.posts,
         persistError,
         createProject,
         addStage: addStageAction,
         setStageDependency: setStageDependencyAction,
         addTask: addTaskAction,
         updateTask: updateTaskAction,
+        expressInterest: expressInterestAction,
+        requestJoin: requestJoinAction,
+        publishPost: publishPostAction,
         remember,
       }}
     >

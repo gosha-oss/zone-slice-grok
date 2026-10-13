@@ -4,6 +4,8 @@ export type Priority = "low" | "medium" | "high";
 
 export type Visibility = "private" | "public";
 
+export type CatalogStatus = "active" | "recruiting" | "finished";
+
 export type Role = "owner" | "admin" | "member" | "viewer";
 
 export type Person = {
@@ -52,6 +54,7 @@ export type Project = {
   goal: string;
   projectType: string;
   visibility: Visibility;
+  catalogStatus: CatalogStatus;
   stages: Stage[];
   participants: Person[];
   activity: ActivityEvent[];
@@ -69,6 +72,26 @@ export type TaskDraft = {
   priority: Priority;
   assigneeId?: string;
   due?: string;
+};
+
+export type Interest = {
+  projectId: string;
+  at: string;
+};
+
+export type JoinRequest = {
+  id: string;
+  projectId: string;
+  message: string;
+  at: string;
+};
+
+export type ParticipantPost = {
+  id: string;
+  projectId: string;
+  role: string;
+  text: string;
+  at: string;
 };
 
 export type NewProjectInput = {

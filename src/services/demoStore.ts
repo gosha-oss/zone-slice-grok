@@ -4,8 +4,12 @@ import { STATUS_LABEL } from "../lib/taskVisual";
 import type {
   ActivityEvent,
   ActivityKind,
+  CatalogStatus,
   DemoFile,
+  Interest,
+  JoinRequest,
   NewProjectInput,
+  ParticipantPost,
   Person,
   Priority,
   Project,
@@ -15,6 +19,7 @@ import type {
   TaskStatus,
   Visibility,
 } from "../types/project";
+import { catalogSeedPost, createCatalogProjects } from "./catalogProjects";
 import { demoParticipants } from "./demoPeople";
 import { createSeedProject } from "./demoProject";
 
@@ -29,21 +34,40 @@ export type DemoStore = {
   version: 1;
   lastProjectId: string;
   projects: Project[];
+  interests: Interest[];
+  joinRequests: JoinRequest[];
+  posts: ParticipantPost[];
 };
 
 export function seedStore(): DemoStore {
   const project = createSeedProject();
-  return { version: 1, lastProjectId: project.id, projects: [project] };
+  return {
+    version: 1,
+    lastProjectId: project.id,
+    projects: [project, ...createCatalogProjects()],
+    interests: [],
+    joinRequests: [],
+    posts: [catalogSeedPost()],
+  };
 }
 
 export function loadStore(): DemoStore {
   try {
     const raw = localStorage.getItem(DEMO_STORE_KEY);
     if (!raw) return seedStore();
-    return parseStore(JSON.parse(raw)) ?? seedStore();
+    return mergeCatalog(parseStore(JSON.parse(raw)) ?? seedStore());
   } catch {
     return seedStore();
   }
+}
+
+export function mergeCatalog(store: DemoStore): DemoStore {
+  const ids = new Set(store.projects.map((project) => project.id));
+  const extra = createCatalogProjects().filter((project) => !ids.has(project.id));
+  const seedPost = catalogSeedPost();
+  const posts = store.posts.some((post) => post.id === seedPost.id) ? store.posts : [seedPost, ...store.posts];
+  if (extra.length === 0 && posts === store.posts) return store;
+  return { ...store, projects: [...store.projects, ...extra], posts };
 }
 
 export function saveStore(store: DemoStore): string | null {
@@ -71,6 +95,7 @@ export function buildProject(input: NewProjectInput): Project {
     goal: input.goal.trim(),
     projectType: input.projectType,
     visibility: input.visibility,
+    catalogStatus: "active",
     participants: demoParticipants(),
     files: [
       {
@@ -99,7 +124,7 @@ export function addProject(store: DemoStore, input: NewProjectInput): DemoStore 
     makeEvent("participants_seeded", "В проект подставлен локальный список участников. Приглашения не отправлялись."),
   ];
   return {
-    version: 1,
+    ...store,
     lastProjectId: created.id,
     projects: [...store.projects, created],
     created,
@@ -304,7 +329,14 @@ export function parseStore(value: unknown): DemoStore | null {
   if (projects.length === 0) return null;
   const requested = typeof value.lastProjectId === "string" ? value.lastProjectId : projects[0].id;
   const lastProjectId = projects.some((project) => project.id === requested) ? requested : projects[0].id;
-  return { version: 1, lastProjectId, projects };
+  return {
+    version: 1,
+    lastProjectId,
+    projects,
+    interests: parseInterests(value.interests),
+    joinRequests: parseJoinRequests(value.joinRequests),
+    posts: parsePosts(value.posts),
+  };
 }
 
 function parseProject(value: unknown): Project | null {
@@ -322,6 +354,7 @@ function parseProject(value: unknown): Project | null {
     goal: typeof value.goal === "string" ? value.goal : "",
     projectType: typeof value.projectType === "string" ? value.projectType : "Приложение",
     visibility,
+    catalogStatus: parseCatalogStatus(value.catalogStatus),
     stages,
     participants: parsePeople(value.participants),
     activity: parseActivity(value.activity, value.id),
@@ -350,6 +383,99 @@ function parseTask(value: unknown): Task | null {
   const due = typeof value.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.due) ? value.due : undefined;
   const assigneeId = typeof value.assigneeId === "string" ? value.assigneeId : undefined;
   return { id: value.id, title: value.title, status: value.status as TaskStatus, priority, assigneeId, due };
+}
+
+function parseCatalogStatus(value: unknown): CatalogStatus {
+  if (value === "recruiting" || value === "finished" || value === "active") return value;
+  return "active";
+}
+
+function parseInterests(value: unknown): Interest[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.projectId !== "string" || typeof item.at !== "string") return [];
+    return [{ projectId: item.projectId, at: item.at }];
+  });
+}
+
+function parseJoinRequests(value: unknown): JoinRequest[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.projectId !== "string") return [];
+    if (typeof item.message !== "string" || typeof item.at !== "string") return [];
+    return [{ id: item.id, projectId: item.projectId, message: item.message, at: item.at }];
+  });
+}
+
+function parsePosts(value: unknown): ParticipantPost[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.projectId !== "string") return [];
+    if (typeof item.role !== "string" || typeof item.text !== "string" || typeof item.at !== "string") return [];
+    return [{ id: item.id, projectId: item.projectId, role: item.role, text: item.text, at: item.at }];
+  });
+}
+
+export function expressInterest(store: DemoStore, projectId: string): { store: DemoStore } | { error: string } {
+  const project = store.projects.find((item) => item.id === projectId);
+  if (!project || project.visibility !== "public") return { error: "В каталоге нет этого открытого проекта." };
+  if (store.interests.some((item) => item.projectId === projectId)) return { store };
+  return {
+    store: {
+      ...store,
+      interests: [{ projectId, at: new Date().toISOString() }, ...store.interests],
+    },
+  };
+}
+
+export function saveJoinRequest(
+  store: DemoStore,
+  projectId: string,
+  message: string,
+): { store: DemoStore } | { error: string } {
+  const project = store.projects.find((item) => item.id === projectId);
+  if (!project || project.visibility !== "public") return { error: "В каталоге нет этого открытого проекта." };
+  const text = message.trim();
+  if (!text) return { error: "Напишите, чем хотите помочь." };
+  if (store.joinRequests.some((item) => item.projectId === projectId)) return { store };
+  return {
+    store: {
+      ...store,
+      joinRequests: [
+        { id: createId("join"), projectId, message: text, at: new Date().toISOString() },
+        ...store.joinRequests,
+      ],
+    },
+  };
+}
+
+export function publishParticipantPost(
+  store: DemoStore,
+  projectId: string,
+  role: string,
+  text: string,
+): { store: DemoStore } | { error: string } {
+  const project = store.projects.find((item) => item.id === projectId);
+  if (!project || project.visibility !== "public") return { error: "Запрос можно сохранить только для открытого проекта." };
+  const roleText = role.trim();
+  const body = text.trim();
+  if (!roleText || !body) return { error: "Нужны роль и текст запроса." };
+  const post: ParticipantPost = {
+    id: createId("post"),
+    projectId,
+    role: roleText,
+    text: body,
+    at: new Date().toISOString(),
+  };
+  return {
+    store: {
+      ...store,
+      posts: [post, ...store.posts],
+      projects: store.projects.map((item) =>
+        item.id === projectId && item.catalogStatus === "active" ? { ...item, catalogStatus: "recruiting" } : item,
+      ),
+    },
+  };
 }
 
 function defaultDependency(stageId: string): string[] {

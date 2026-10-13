@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ExplorePlaceholder } from "../features/projects/ExplorePlaceholder";
+import { Catalog } from "../features/community/Catalog";
+import { PublicProjectPage } from "../features/community/PublicProjectPage";
 import { CreateProjectForm } from "../features/projects/CreateProjectForm";
 import { Landing } from "../features/projects/Landing";
 import { ProjectUniverse } from "../features/projects/ProjectUniverse";
@@ -31,7 +32,23 @@ export function Shell() {
   const [selection, setSelection] = useState<Selection>({ kind: "project" });
   const explicitId = location.kind === "space" ? location.projectId : null;
   const project =
-    location.kind === "space" ? findProject({ version: 1, lastProjectId: data.lastProjectId, projects: data.projects }, explicitId) : undefined;
+    location.kind === "space"
+      ? findProject(
+          {
+            version: 1,
+            lastProjectId: data.lastProjectId,
+            projects: data.projects,
+            interests: data.interests,
+            joinRequests: data.joinRequests,
+            posts: data.posts,
+          },
+          explicitId,
+        )
+      : undefined;
+  const exploreProject =
+    location.kind === "explore" && location.projectId
+      ? data.projects.find((item) => item.id === location.projectId && item.visibility === "public")
+      : undefined;
   const missingProject = location.kind === "space" && explicitId !== null && !project;
   const projectKey = project?.id ?? "";
   const [seenProject, setSeenProject] = useState(projectKey);
@@ -49,12 +66,14 @@ export function Shell() {
       location.kind === "create"
         ? "Новый проект — BuildHub"
         : location.kind === "explore"
-          ? "Каталог — BuildHub"
+          ? exploreProject
+            ? `${exploreProject.name} — Каталог`
+            : "Каталог — BuildHub"
           : project
             ? `${project.name} — BuildHub`
             : "BuildHub";
     document.title = title;
-  }, [location.kind, project]);
+  }, [exploreProject, location.kind, project]);
 
   const resetView = () => {
     sceneApi.current?.resetView();
@@ -111,7 +130,10 @@ export function Shell() {
         </header>
         <main className="relative min-h-0 flex-1">
           {location.kind === "landing" && <Landing />}
-          {location.kind === "explore" && <ExplorePlaceholder />}
+          {location.kind === "explore" && location.projectId === null && <Catalog />}
+          {location.kind === "explore" && location.projectId !== null && (
+            <PublicProjectPage projectId={location.projectId} />
+          )}
           {location.kind === "create" && <CreateProjectForm />}
           {missingProject && (
             <div className="pointer-events-auto flex h-full items-end px-4 pb-8 sm:items-center sm:justify-end sm:px-10">

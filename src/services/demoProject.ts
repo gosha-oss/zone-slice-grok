@@ -11,6 +11,7 @@ export function createSeedProject(): Project {
     goal: "Собрать первую версию, где этап и его задачи видны как один объект.",
     projectType: "Приложение",
     visibility: "private",
+    catalogStatus: "active",
     participants: demoParticipants(),
     files: [
       { id: "lumen-map", name: "Карта решений.md", note: "Локальная демо-запись. Файл не загружался в хранилище." },
