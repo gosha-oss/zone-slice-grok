@@ -6,6 +6,7 @@ extends Node3D
 @export var collision_radius: float = 420.0  # где есть физика, м
 @export var max_tasks: int = 3               # сколько квадратов строится одновременно
 @export var apply_per_frame: int = 2
+@export var decal_range: float = 700.0       # как далеко видны разметка и люки, м
 
 signal initial_ready
 
@@ -130,6 +131,13 @@ func _apply_done() -> void:
 			w.material_override = _water_mat
 			w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			node.add_child(w)
+		if res.get("decals") != null:
+			var dm := MeshInstance3D.new()
+			dm.mesh = res.decals
+			dm.material_override = _mat
+			dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			dm.visibility_range_end = decal_range
+			node.add_child(dm)
 		add_child(node)
 		loaded[k] = {"node": node, "mesh": res.mesh, "body": null, "pending_shape": false, "tris": res.tris}
 		tris_total += res.tris

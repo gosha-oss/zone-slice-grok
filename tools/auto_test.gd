@@ -107,6 +107,17 @@ func _run() -> void:
 	var e: Dictionary = CityData.meta.exits[2]
 	await _goto(float(e.x) + 22.0, float(e.z) + 22.0, 9.0, 45.0, -18.0, 9.0, true)
 	await _shot("07_checkpoint_dam")
+	# дороги: переход со светофором на бульваре, вид с земли, сверху и план
+	await _goto(680.3, -1121.1, 0.9, 319.2, -6.0, 11.0, false)
+	await _shot("08_crossing_ground")
+	await _goto(672.0, -1111.0, 16.0, 319.2, -28.0, 15.0, true)
+	await _shot("09_crossing_above")
+	await _goto(670.0, -1112.0, 4.0, 319.2, -25.0, 15.0, true)
+	await _shot("09b_curb_close")
+	await _goto(694.7, -1137.7, 70.0, 319.2, -89.0, 12.0, true)
+	await _shot("10_crossing_plan")
+	await _goto(1339.0, 1944.0, 45.0, 0.0, -50.0, 13.0, true)
+	await _shot("11_junction_south")
 
 
 

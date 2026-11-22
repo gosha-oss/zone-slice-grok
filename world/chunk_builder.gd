@@ -41,10 +41,19 @@ const SKIRT := 1.6        # насколько борт дороги уходи�
 const WALL_DOWN := 3.0    # насколько стены домов уходят под землю, м
 const U := 0.0625         # единица координат в данных, м
 
+const MARK_COLOR := Color(0.80, 0.80, 0.77)
+const CURB_COLOR := Color(0.60, 0.60, 0.58)
+const VERGE_COLOR := Color(0.44, 0.47, 0.40)
+
 var v := PackedVector3Array()
 var nrm := PackedVector3Array()
 var col := PackedColorArray()
 var idx := PackedInt32Array()
+# разметка, люки, заплаты: отдельная сетка без столкновений и теней
+var dv := PackedVector3Array()
+var dc := PackedColorArray()
+var di := PackedInt32Array()
+var _ck := ""
 
 static func build(c: Vector2i, with_shape: bool) -> Dictionary:
 	var b := ChunkBuilder.new()
@@ -52,6 +61,7 @@ static func build(c: Vector2i, with_shape: bool) -> Dictionary:
 
 func _build(c: Vector2i, with_shape: bool) -> Dictionary:
 	var D := CityData
+	_ck = "%d_%d" % [c.x, c.y]
 	_terrain(c)
 	var rec := D.chunk_record(c)
 	var water: ArrayMesh = null
@@ -65,7 +75,22 @@ func _build(c: Vector2i, with_shape: bool) -> Dictionary:
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var out := {"mesh": mesh, "water": water, "tris": idx.size() / 3}
+	for q: Array in D.local_decals.get(_ck, []):
+		_decal(int(q[0]), Vector3(q[1], q[3], q[2]), q[4], q[5], q[6], q[7])
+	var out := {"mesh": mesh, "water": water, "tris": (idx.size() + di.size()) / 3, "decals": null}
+	if not dv.is_empty():
+		var dn := PackedVector3Array()
+		dn.resize(dv.size())
+		dn.fill(Vector3.UP)
+		var da := []
+		da.resize(Mesh.ARRAY_MAX)
+		da[Mesh.ARRAY_VERTEX] = dv
+		da[Mesh.ARRAY_NORMAL] = dn
+		da[Mesh.ARRAY_COLOR] = dc
+		da[Mesh.ARRAY_INDEX] = di
+		var dm := ArrayMesh.new()
+		dm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, da)
+		out["decals"] = dm
 	if with_shape:
 		out["shape"] = mesh.create_trimesh_shape()
 	return out
@@ -139,14 +164,15 @@ func _features(p: int) -> ArrayMesh:
 		var cls := g[p]
 		var width := g[p + 1] * 0.25
 		var flags := g[p + 2]
-		var npts := g.decode_u16(p + 3)
-		p += 5
+		var surf := g[p + 3]
+		var npts := g.decode_u16(p + 4)
+		p += 6
 		var pts := PackedVector3Array()
 		pts.resize(npts)
 		for k in npts:
 			pts[k] = Vector3(g.decode_s16(p) * U, g.decode_s16(p + 4) * 0.01, g.decode_s16(p + 2) * U)
 			p += 6
-		_road(pts, width, cls, flags)
+		_road(pts, width, cls, flags, surf)
 	# заборы и стены
 	var nbar := g.decode_u16(p); p += 2
 	for _w in nbar:
@@ -161,6 +187,28 @@ func _features(p: int) -> ArrayMesh:
 				_wall(prev, q, prev.y - 0.5, q.y - 0.5, prev.y + height, q.y + height, BARRIER_COLOR)
 				_wall(q, prev, q.y - 0.5, prev.y - 0.5, q.y + height, prev.y + height, BARRIER_COLOR)
 			prev = q
+	# линии: разметка, бордюры, парковки
+	var nl := g.decode_u16(p); p += 2
+	for _l in nl:
+		var ltype := g[p]
+		var lw := g[p + 1] * 0.01
+		var npts := g.decode_u16(p + 2)
+		p += 4
+		var pts := PackedVector3Array()
+		pts.resize(npts)
+		for k in npts:
+			pts[k] = Vector3(g.decode_s16(p) * U, g.decode_s16(p + 4) * 0.01, g.decode_s16(p + 2) * U)
+			p += 6
+		if ltype == 10:
+			_curb(pts)
+		else:
+			_line(pts, lw, ltype, p)
+	# наклейки: зебры, стоп-линии, люки, решётки, заплаты
+	var nd := g.decode_u16(p); p += 2
+	for _d in nd:
+		_decal(g[p], Vector3(g.decode_s16(p + 1) * U, g.decode_s16(p + 5) * 0.01, g.decode_s16(p + 3) * U),
+			g.decode_s16(p + 7) * 0.1, g.decode_s8(p + 9) * 0.01, g[p + 10] * 0.1, g[p + 11] * 0.1)
+		p += 12
 	if wv.is_empty():
 		return null
 	var wn := PackedVector3Array()
@@ -221,11 +269,25 @@ func _wall(p: Vector3, q: Vector3, pb: float, qb: float, pt: float, qt: float, c
 	idx.push_back(base); idx.push_back(base + 1); idx.push_back(base + 2)
 	idx.push_back(base); idx.push_back(base + 2); idx.push_back(base + 3)
 
-func _road(pts: PackedVector3Array, width: float, cls: int, flags: int) -> void:
+func _road(pts: PackedVector3Array, width: float, cls: int, flags: int, surf: int = 0) -> void:
 	var n := pts.size()
 	if n < 2:
 		return
 	var c := ROAD_COLORS[mini(cls, ROAD_COLORS.size() - 1)]
+	if cls == 7:
+		_rails(pts)
+		width = 3.2
+		c = Color(0.40, 0.38, 0.36)
+	elif surf == 1:
+		c = Color(0.55, 0.52, 0.50)      # плитка, брусчатка
+	elif surf == 2:
+		c = Color(0.52, 0.52, 0.51)      # бетон
+	elif surf == 3:
+		c = Color(0.50, 0.49, 0.47)      # достроенный тротуар (асфальт)
+	elif cls <= 3:
+		# у каждой улицы свой оттенок асфальта
+		var sh := 0.92 + 0.16 * float((int(pts[0].x * 3.0) * 73856093 ^ int(pts[0].z * 3.0) * 19349663) & 0xFF) / 255.0
+		c = Color(c.r * sh, c.g * sh, c.b * sh)
 	var hw := width * 0.5
 	var skirt := cls <= 3 or (flags & 1) != 0
 	var base := v.size()
@@ -267,3 +329,158 @@ func _road(pts: PackedVector3Array, width: float, cls: int, flags: int) -> void:
 			var b2 := sides[k * 2 + 3]
 			_wall(a, a2, a.y - SKIRT, a2.y - SKIRT, a.y, a2.y, sc)
 			_wall(b2, b, b2.y - SKIRT, b.y - SKIRT, b2.y, b.y, sc)
+
+# ---------- детали дорог ----------
+func _dquad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color) -> void:
+	var base := dv.size()
+	dv.push_back(a); dv.push_back(b); dv.push_back(c); dv.push_back(d)
+	for _k in 4:
+		dc.push_back(color)
+	di.push_back(base); di.push_back(base + 1); di.push_back(base + 2)
+	di.push_back(base); di.push_back(base + 2); di.push_back(base + 3)
+	di.push_back(base); di.push_back(base + 2); di.push_back(base + 1)
+	di.push_back(base); di.push_back(base + 3); di.push_back(base + 2)
+
+## Нормаль влево в точке k ломаной (в плоскости XZ).
+func _left(pts: PackedVector3Array, k: int) -> Vector3:
+	var a := pts[maxi(k - 1, 0)]
+	var b := pts[mini(k + 1, pts.size() - 1)]
+	var d := Vector2(b.x - a.x, b.z - a.z)
+	if d.length_squared() < 0.000001:
+		return Vector3.ZERO
+	d = d.normalized()
+	return Vector3(d.y, 0.0, -d.x)
+
+## Линия разметки: 0 сплошная, 1 прерывистая, 5 контур парковки.
+func _line(pts: PackedVector3Array, width: float, ltype: int, seed_i: int) -> void:
+	var n := pts.size()
+	if n < 2:
+		return
+	var wear := 0.72 + 0.28 * float((seed_i * 2654435761) & 0xFF) / 255.0
+	var c := Color(MARK_COLOR.r * wear, MARK_COLOR.g * wear, MARK_COLOR.b * wear)
+	if ltype == 5:
+		c = Color(0.66, 0.66, 0.64)
+	var hw := width * 0.5
+	var dash := 2.5
+	var gap := 5.0
+	var s := 0.0
+	for k in n - 1:
+		var a := pts[k]
+		var b := pts[k + 1]
+		var la := _left(pts, k) * hw
+		var lb := _left(pts, k + 1) * hw
+		if ltype != 1:
+			_dquad(a + la, b + lb, b - lb, a - la, c)
+			continue
+		var seg := Vector2(b.x - a.x, b.z - a.z).length()
+		if seg < 0.001:
+			continue
+		var t := 0.0
+		while t < seg:
+			var ph := fmod(s + t, dash + gap)
+			if ph < dash:
+				var t1 := minf(seg, t + dash - ph)
+				var p0 := a.lerp(b, t / seg)
+				var p1 := a.lerp(b, t1 / seg)
+				_dquad(p0 + la, p1 + la, p1 - la, p0 - la, c)
+				t = t1 + 0.0001
+			else:
+				t += dash + gap - ph
+		s += seg
+
+## Бордюр: дорога слева от линии. Скат к дороге, полка, откос наружу.
+func _curb(pts: PackedVector3Array) -> void:
+	var n := pts.size()
+	if n < 2:
+		return
+	var offs: Array[float] = [0.0, 0.17, 0.36, 1.05]
+	var ups: Array[float] = [0.0, 0.13, 0.13, -0.30]
+	var cols: Array[Color] = [CURB_COLOR, CURB_COLOR, CURB_COLOR * 1.06, VERGE_COLOR]
+	var base := v.size()
+	for k in n:
+		var r := -_left(pts, k)
+		for m in 4:
+			v.push_back(pts[k] + r * offs[m] + Vector3(0.0, ups[m], 0.0))
+			nrm.push_back(Vector3.UP)
+			col.push_back(cols[m] if m < 3 else VERGE_COLOR)
+	for k in n - 1:
+		for m in 3:
+			var a := base + k * 4 + m
+			# a = ближе к дороге, a+1 = дальше; следующий ряд +4
+			idx.push_back(a); idx.push_back(a + 4); idx.push_back(a + 1)
+			idx.push_back(a + 1); idx.push_back(a + 4); idx.push_back(a + 5)
+		var o := v[base + k * 4 + 3]
+		var o2 := v[base + k * 4 + 7]
+		_wall(o2, o, o2.y - 1.2, o.y - 1.2, o2.y, o.y, VERGE_COLOR * 0.85)
+	# торцы: закрываем профиль с обеих сторон
+	for e: int in [base, base + (n - 1) * 4]:
+		for t: Array in [[0, 1, 2], [0, 2, 3]]:
+			idx.push_back(e + t[0]); idx.push_back(e + t[1]); idx.push_back(e + t[2])
+			idx.push_back(e + t[0]); idx.push_back(e + t[2]); idx.push_back(e + t[1])
+
+## Наклейка на дороге. yaw — направление дороги в градусах, slope — уклон вдоль неё.
+func _decal(dtype: int, c: Vector3, yaw: float, slope: float, a: float, b: float) -> void:
+	var th := deg_to_rad(yaw)
+	var f := Vector3(sin(th), 0.0, cos(th))       # вдоль дороги
+	var r := Vector3(f.z, 0.0, -f.x)              # поперёк
+	var up := Vector3(0.0, slope, 0.0)
+	match dtype:
+		1:  # зебра: полосы вдоль движения, a — ширина дороги, b — длина полос
+			var cnt := maxi(2, int(a / 1.0))
+			var step := a / cnt
+			var hl := b * 0.5
+			for i in cnt:
+				var o := r * (-a * 0.5 + (i + 0.5) * step)
+				var w := r * 0.25
+				_dquad(c + o - w - f * hl - up * hl, c + o - w + f * hl + up * hl, c + o + w + f * hl + up * hl, c + o + w - f * hl - up * hl, MARK_COLOR * 0.95)
+		2:  # стоп-линия: a поперёк, b вдоль
+			_rect(c, f, r, up, b * 0.5, a * 0.5, MARK_COLOR * 0.9)
+		3:  # люк
+			var rad := a * 0.5
+			var base := dv.size()
+			var cc := Color(0.17, 0.16, 0.15)
+			dv.push_back(c); dc.push_back(cc * 1.25)
+			for i in 10:
+				var an := TAU * i / 10.0
+				dv.push_back(c + Vector3(cos(an) * rad, 0.0, sin(an) * rad)); dc.push_back(cc)
+			for i in 10:
+				di.push_back(base); di.push_back(base + 1 + i); di.push_back(base + 1 + (i + 1) % 10)
+				di.push_back(base); di.push_back(base + 1 + (i + 1) % 10); di.push_back(base + 1 + i)
+		4:  # ливневая решётка
+			_rect(c, f, r, up, b * 0.5, a * 0.5, Color(0.13, 0.13, 0.13))
+		5:  # заплата на асфальте
+			var hsh := float((int(c.x * 5.0) * 73856093 ^ int(c.z * 5.0) * 19349663) & 0xFF) / 255.0
+			var g := 0.17 + 0.13 * hsh
+			_rect(c, f, r, up, a * 0.5, b * 0.5, Color(g, g, g * 1.03))
+
+func _rect(c: Vector3, f: Vector3, r: Vector3, up: Vector3, hl: float, hwid: float, color: Color) -> void:
+	_dquad(c - r * hwid - f * hl - up * hl, c - r * hwid + f * hl + up * hl, c + r * hwid + f * hl + up * hl, c + r * hwid - f * hl - up * hl, color)
+
+## Рельсы и шпалы поверх щебня.
+func _rails(pts: PackedVector3Array) -> void:
+	var n := pts.size()
+	var steel := Color(0.34, 0.33, 0.33)
+	var wood := Color(0.24, 0.20, 0.17)
+	var s := 0.0
+	for k in n - 1:
+		var a := pts[k]
+		var b := pts[k + 1]
+		var seg := Vector2(b.x - a.x, b.z - a.z).length()
+		if seg < 0.001:
+			continue
+		var f := Vector3(b.x - a.x, 0.0, b.z - a.z) / seg
+		var r := Vector3(f.z, 0.0, -f.x)
+		var la := _left(pts, k)
+		var lb := _left(pts, k + 1)
+		for side: float in [-0.76, 0.76]:
+			var p0 := a + la * side + Vector3(0, 0.17, 0)
+			var p1 := b + lb * side + Vector3(0, 0.17, 0)
+			_dquad(p0 + la * 0.04, p1 + lb * 0.04, p1 - lb * 0.04, p0 - la * 0.04, steel * 1.25)
+			_dquad(p0 + la * 0.04 - Vector3(0, 0.13, 0), p1 + lb * 0.04 - Vector3(0, 0.13, 0), p1 + lb * 0.04, p0 + la * 0.04, steel)
+			_dquad(p0 - la * 0.04 - Vector3(0, 0.13, 0), p1 - lb * 0.04 - Vector3(0, 0.13, 0), p1 - lb * 0.04, p0 - la * 0.04, steel)
+		var t := fmod(0.7 - fmod(s, 0.7), 0.7)
+		while t < seg:
+			var m := a.lerp(b, t / seg) + Vector3(0, 0.05, 0)
+			_dquad(m - r * 1.3 - f * 0.12, m - r * 1.3 + f * 0.12, m + r * 1.3 + f * 0.12, m + r * 1.3 - f * 0.12, wood)
+			t += 0.7
+		s += seg

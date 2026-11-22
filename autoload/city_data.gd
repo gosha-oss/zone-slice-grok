@@ -18,6 +18,7 @@ var heights: PackedByteArray   # int16, сантиметры
 var cover: PackedByteArray     # uint8, тип земли
 var geo: PackedByteArray       # дома/дороги по квадратам
 var _geo_table: int = 0
+var local_decals: Dictionary = {}   # необязательный локальный слой (res://city/local_extra.json)
 
 func _ready() -> void:
 	load_all()
@@ -43,6 +44,13 @@ func load_all() -> void:
 	nx = geo.decode_u32(4)
 	nz = geo.decode_u32(8)
 	_geo_table = 12
+	if int(meta.get("version", 1)) < 2:
+		push_error("Данные города старые: пересобери их (tools/build_city.py)")
+		return
+	if FileAccess.file_exists("res://city/local_extra.json"):
+		var le: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://city/local_extra.json"))
+		if le is Dictionary:
+			local_decals = le.get("decals", {})
 	x0 = float(meta["x0"])
 	z0 = float(meta["z0"])
 	ok = true

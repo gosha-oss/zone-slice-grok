@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "name": "Черкассы",
  "origin": {
   "lat": 49.435,
@@ -498,9 +498,11 @@
  ],
  "counts": {
   "buildings": 83109,
-  "roads": 27121,
+  "roads": 33759,
   "barriers": 16310,
-  "pois": 6345
+  "pois": 6345,
+  "lines": 22481,
+  "decals": 20525
  },
  "attribution": "Карта: © участники OpenStreetMap (ODbL) · Высоты: NASA SRTM"
 }

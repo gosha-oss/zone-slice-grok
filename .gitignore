@@ -7,3 +7,4 @@ export/
 *.zip
 __pycache__/
 *.tmp
+city/local_extra.json
