@@ -67,6 +67,8 @@ func _build(c: Vector2i, with_shape: bool) -> Dictionary:
 	var water: ArrayMesh = null
 	if rec.y > 0:
 		water = _features(rec.x)
+	for q: Array in D.local_props.get(_ck, []):
+		_prop(int(q[0]), Vector3(q[1], q[3], q[2]), q[4], int(q[5]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = v
@@ -209,6 +211,11 @@ func _features(p: int) -> ArrayMesh:
 		_decal(g[p], Vector3(g.decode_s16(p + 1) * U, g.decode_s16(p + 5) * 0.01, g.decode_s16(p + 3) * U),
 			g.decode_s16(p + 7) * 0.1, g.decode_s8(p + 9) * 0.01, g[p + 10] * 0.1, g[p + 11] * 0.1)
 		p += 12
+	# уличные предметы
+	var np := g.decode_u16(p); p += 2
+	for _q in np:
+		_prop(g[p], Vector3(g.decode_s16(p + 1) * U, g.decode_s16(p + 5) * 0.01, g.decode_s16(p + 3) * U), g.decode_s16(p + 7) * 0.1, g[p + 9])
+		p += 10
 	if wv.is_empty():
 		return null
 	var wn := PackedVector3Array()
@@ -484,3 +491,169 @@ func _rails(pts: PackedVector3Array) -> void:
 			_dquad(m - r * 1.3 - f * 0.12, m - r * 1.3 + f * 0.12, m + r * 1.3 + f * 0.12, m + r * 1.3 - f * 0.12, wood)
 			t += 0.7
 		s += seg
+
+# ---------- уличные предметы: фонари, столбы, светофоры, знаки, остановки ----------
+const POLE_COLOR := Color(0.50, 0.50, 0.49)
+const METAL_DARK := Color(0.13, 0.14, 0.15)
+const SIGN_BACK := Color(0.42, 0.43, 0.44)
+const SIGN_RED := Color(0.72, 0.10, 0.09)
+const SIGN_BLUE := Color(0.10, 0.27, 0.62)
+const SIGN_WHITE := Color(0.88, 0.88, 0.86)
+const SIGN_YELLOW := Color(0.88, 0.68, 0.08)
+
+## Четырёхугольник, развёрнутый лицом в сторону want.
+func _pq(a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color, want: Vector3) -> void:
+	var n := (c - b).cross(b - a).normalized()
+	var base := v.size()
+	if n.dot(want) < 0.0:
+		n = -n
+		v.push_back(d); v.push_back(c); v.push_back(b); v.push_back(a)
+	else:
+		v.push_back(a); v.push_back(b); v.push_back(c); v.push_back(d)
+	for _k in 4:
+		nrm.push_back(n)
+		col.push_back(color)
+	idx.push_back(base); idx.push_back(base + 1); idx.push_back(base + 2)
+	idx.push_back(base); idx.push_back(base + 2); idx.push_back(base + 3)
+
+## Коробка: центр и три полуоси.
+func _pbox(c: Vector3, ax: Vector3, ay: Vector3, az: Vector3, color: Color) -> void:
+	for s: float in [-1.0, 1.0]:
+		_pq(c + ax * s - ay - az, c + ax * s + ay - az, c + ax * s + ay + az, c + ax * s - ay + az, color, ax * s)
+		_pq(c + ay * s - ax - az, c + ay * s + ax - az, c + ay * s + ax + az, c + ay * s - ax + az, color * (1.05 if s > 0.0 else 0.8), ay * s)
+		_pq(c + az * s - ax - ay, c + az * s + ax - ay, c + az * s + ax + ay, c + az * s - ax + ay, color, az * s)
+
+## Круглый столб от точки a до точки b.
+func _ppole(a: Vector3, b: Vector3, r0: float, r1: float, color: Color, sides: int = 5) -> void:
+	var ax := (b - a).normalized()
+	var u := ax.cross(Vector3(0.3, 0.1, 0.9)).normalized()
+	var w := ax.cross(u)
+	for k in sides:
+		var a0 := TAU * k / sides
+		var a1 := TAU * (k + 1) / sides
+		var d0 := u * cos(a0) + w * sin(a0)
+		var d1 := u * cos(a1) + w * sin(a1)
+		_pq(a + d0 * r0, a + d1 * r0, b + d1 * r1, b + d0 * r1, color * (0.85 + 0.15 * absf(cos(a0 + 0.7))), d0 + d1)
+
+## Плоская фигура: c — центр, ux/uy — оси в плоскости, лицом в сторону want.
+func _ppoly(c: Vector3, ux: Vector3, uy: Vector3, pts: PackedVector2Array, color: Color, want: Vector3) -> void:
+	var base := v.size()
+	v.push_back(c); nrm.push_back(want); col.push_back(color)
+	for q in pts:
+		v.push_back(c + ux * q.x + uy * q.y); nrm.push_back(want); col.push_back(color)
+	var n := pts.size()
+	var flip := (uy.cross(ux)).dot(want) < 0.0
+	for k in n:
+		var i1 := base + 1 + k
+		var i2 := base + 1 + (k + 1) % n
+		idx.push_back(base)
+		if flip:
+			idx.push_back(i2); idx.push_back(i1)
+		else:
+			idx.push_back(i1); idx.push_back(i2)
+
+func _ngon(n: int, rad: float, rot: float = 0.0) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for k in n:
+		var an := rot + TAU * k / n
+		out.push_back(Vector2(cos(an) * rad, sin(an) * rad))
+	return out
+
+func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
+	var th := deg_to_rad(yaw)
+	var f := Vector3(sin(th), 0.0, cos(th))
+	var r := Vector3(f.z, 0.0, -f.x)
+	var up := Vector3.UP
+	p.y -= 0.15
+	match ptype:
+		1:  # фонарь
+			if pvar == 1:   # парковый
+				_ppole(p, p + up * 3.9, 0.06, 0.045, METAL_DARK)
+				_pbox(p + up * 4.05, r * 0.16, up * 0.14, f * 0.16, Color(0.85, 0.83, 0.74))
+			else:
+				var top := p + up * 9.0
+				_ppole(p, top, 0.14, 0.08, POLE_COLOR)
+				var tip := top + f * 1.9 + up * 0.5
+				_ppole(top - up * 0.1, tip, 0.05, 0.04, POLE_COLOR, 4)
+				_pbox(tip + f * 0.25 - up * 0.02, r * 0.14, up * 0.06, f * 0.36, Color(0.80, 0.80, 0.76))
+		2:  # столб ЛЭП
+			var top := p + up * 8.6
+			_pbox(p + up * 4.3, r * 0.11, up * 4.3, f * 0.11, Color(0.56, 0.55, 0.52))
+			_pbox(top - up * 0.5, r * 0.05, up * 0.05, f * 0.75, METAL_DARK * 2.0)
+			if pvar == 1:
+				_pbox(top - up * 1.2, r * 0.05, up * 0.05, f * 0.55, METAL_DARK * 2.0)
+		3:  # светофор
+			_ppole(p, p + up * 3.6, 0.065, 0.055, METAL_DARK * 1.6)
+			var hc := p + up * 3.05 + f * 0.02
+			_pbox(hc, r * 0.16, up * 0.48, f * 0.11, METAL_DARK)
+			var lamps: Array[Color] = [Color(0.55, 0.08, 0.06), Color(0.50, 0.38, 0.05), Color(0.06, 0.42, 0.16)]
+			for k in 3:
+				_ppoly(hc + up * (0.31 - 0.31 * k) + f * 0.115, r, up, _ngon(8, 0.105), lamps[k], f)
+			_pbox(p + up * 2.25, r * 0.10, up * 0.20, f * 0.07, METAL_DARK)
+		4:  # пешеходный светофор
+			_ppole(p, p + up * 2.7, 0.05, 0.045, METAL_DARK * 1.6)
+			var hc := p + up * 2.45
+			_pbox(hc, r * 0.13, up * 0.27, f * 0.09, METAL_DARK)
+			_ppoly(hc + up * 0.13 + f * 0.095, r, up, _ngon(4, 0.12, PI / 4.0), Color(0.55, 0.08, 0.06), f)
+			_ppoly(hc - up * 0.13 + f * 0.095, r, up, _ngon(4, 0.12, PI / 4.0), Color(0.06, 0.42, 0.16), f)
+		5:  # дорожный знак
+			_ppole(p, p + up * 2.95, 0.032, 0.032, SIGN_WHITE * 0.8, 4)
+			var c := p + up * 2.5 + f * 0.04
+			var sq := PI / 4.0
+			var back: PackedVector2Array
+			match pvar:
+				0, 8, 9:  # синий квадрат: переход, парковка, остановка
+					back = _ngon(4, 0.5, sq)
+					_ppoly(c, r, up, back, SIGN_BLUE, f)
+					if pvar == 0:
+						_ppoly(c + f * 0.006 - up * 0.04, r, up, _ngon(3, 0.30, PI / 2.0), SIGN_WHITE, f)
+					else:
+						_ppoly(c + f * 0.006, r, up, _ngon(4, 0.26, sq), SIGN_WHITE, f)
+				1:  # уступи дорогу
+					back = _ngon(3, 0.52, -PI / 2.0)
+					_ppoly(c, r, up, back, SIGN_RED, f)
+					_ppoly(c + f * 0.006, r, up, _ngon(3, 0.33, -PI / 2.0), SIGN_WHITE, f)
+				2:  # главная дорога
+					back = _ngon(4, 0.48)
+					_ppoly(c, r, up, back, SIGN_WHITE, f)
+					_ppoly(c + f * 0.006, r, up, _ngon(4, 0.33), SIGN_YELLOW, f)
+				3:  # стоп
+					back = _ngon(8, 0.40, PI / 8.0)
+					_ppoly(c, r, up, back, SIGN_WHITE, f)
+					_ppoly(c + f * 0.006, r, up, _ngon(8, 0.36, PI / 8.0), SIGN_RED, f)
+				4:  # въезд запрещён
+					back = _ngon(12, 0.36)
+					_ppoly(c, r, up, back, SIGN_RED, f)
+					_ppoly(c + f * 0.006, r * 2.6, up * 0.55, _ngon(4, 0.14, sq), SIGN_WHITE, f)
+				5:  # запрещающий
+					back = _ngon(12, 0.36)
+					_ppoly(c, r, up, back, SIGN_RED, f)
+					_ppoly(c + f * 0.006, r, up, _ngon(12, 0.26), SIGN_WHITE, f)
+				6:  # предписывающий
+					back = _ngon(12, 0.36)
+					_ppoly(c, r, up, back, SIGN_BLUE, f)
+					_ppoly(c + f * 0.006 + up * 0.02, r * 0.6, up, _ngon(3, 0.22, PI / 2.0), SIGN_WHITE, f)
+				_:  # предупреждающий
+					back = _ngon(3, 0.52, PI / 2.0)
+					_ppoly(c, r, up, back, SIGN_RED, f)
+					_ppoly(c + f * 0.006, r, up, _ngon(3, 0.34, PI / 2.0), SIGN_WHITE, f)
+			_ppoly(c - f * 0.004, r, up, back, SIGN_BACK, -f)
+		6:  # остановка: навес лицом к дороге
+			var glass := Color(0.30, 0.36, 0.40) if pvar == 0 else Color(0.40, 0.34, 0.26)
+			var frame := METAL_DARK * 1.8
+			_pbox(p + up * 1.25 - f * 0.75, r * 2.0, up * 1.1, f * 0.03, glass)
+			for s: float in [-1.0, 1.0]:
+				_pbox(p + up * 1.25 + r * 2.0 * s - f * 0.15, r * 0.03, up * 1.1, f * 0.6, glass)
+				_ppole(p + r * 2.0 * s + f * 0.45, p + r * 2.0 * s + f * 0.45 + up * 2.4, 0.04, 0.04, frame, 4)
+				_ppole(p + r * 2.0 * s - f * 0.75, p + r * 2.0 * s - f * 0.75 + up * 2.4, 0.04, 0.04, frame, 4)
+			_pbox(p + up * 2.45 - f * 0.1, r * 2.2, up * 0.05, f * 0.85, frame)
+			_pbox(p + up * 0.6 - f * 0.5, r * 1.5, up * 0.03, f * 0.2, Color(0.45, 0.33, 0.20))
+			_pbox(p + up * 0.3 - f * 0.5, r * 1.4, up * 0.3, f * 0.03, frame)
+		7:  # лавка
+			var wood := Color(0.46, 0.34, 0.21)
+			_pbox(p + up * 0.58, r * 0.85, up * 0.03, f * 0.22, wood)
+			_pbox(p + up * 0.88 - f * 0.22, r * 0.85, up * 0.16, f * 0.025, wood)
+			for s: float in [-1.0, 1.0]:
+				_pbox(p + up * 0.36 + r * 0.7 * s, r * 0.03, up * 0.36, f * 0.2, METAL_DARK * 1.5)
+		8:  # урна
+			_pbox(p + up * 0.55, r * 0.17, up * 0.40, f * 0.17, Color(0.16, 0.26, 0.18))

@@ -624,8 +624,10 @@ def add_zebra(r, s, target):
     target.append(q)
     zebra_near.setdefault((int(x // 64), int(z // 64)), []).append(q)
     r["ccut"].append((s, 2.7))
+    (zebra_log_local if target is local_decals else zebra_log).append((r, s) if target is local_decals else (r, s, None))
     return q
 zebra_near = {}
+zebra_log = []; zebra_log_local = []
 n_zebra = n_stop = 0
 for n in tagged_nodes:
     t = n["tags"]
@@ -635,6 +637,7 @@ for n in tagged_nodes:
         q = add_zebra(r, s, decals)
         if not q:
             continue
+        zebra_log[-1] = (r, s, n["id"])
         n_zebra += 1
         if t.get("crossing") == "traffic_signals" or t.get("crossing:signals") == "yes":
             hw = r["w"] / 2
@@ -801,6 +804,207 @@ for w in area_ways:
             n_park += 1
 print("парковочных мест:", n_park)
 
+# ---------- столбы, светофоры, знаки, остановки ----------
+# prop = (тип, x, z, y, yaw°, вид). yaw — куда «смотрит» предмет.
+# типы: 1 фонарь (вид 0 с вылетом к дороге, 1 парковый) · 2 столб ЛЭП · 3 светофор · 4 пешеходный светофор
+#       5 знак (вид = какой) · 6 остановка · 7 лавка · 8 урна
+props = []
+local_props = []
+pgrid = defaultdict(list)
+def p_near(x, z, d, types=None):
+    gx_, gz_ = int(x // 16), int(z // 16)
+    for dx in (-1, 0, 1):
+        for dz in (-1, 0, 1):
+            for t_, px, pz in pgrid.get((gx_ + dx, gz_ + dz), ()):
+                if (types is None or t_ in types) and (px - x) ** 2 + (pz - z) ** 2 < d * d:
+                    return True
+    return False
+def add_prop(target, t_, x, z, yaw, var=0, y=None):
+    if not (X0 + 2 < x < -X0 - 2 and Z0 + 2 < z < -Z0 - 2) or fhit(bld_mask, [x], [z])[0]:
+        return False
+    if y is None:
+        y = float(sample_tri(Hf, [x], [z])[0])
+    target.append((t_, x, z, y, yaw, var))
+    pgrid[(int(x // 16), int(z // 16))].append((t_, x, z))
+    return True
+def side_point(r, s, off, along=0.0):
+    """точка у дороги: off — сдвиг влево от оси; возвращает x, z, y оси, tx, tz"""
+    x, z, y, tx, tz = at(r, min(max(s + along, 0.0), r["L"]))
+    n = math.hypot(tx, tz) or 1.0
+    tx, tz = tx / n, tz / n
+    return x + tz * off, z - tx * off, y, tx, tz
+def yaw_of(fx, fz):
+    return math.degrees(math.atan2(fx, fz))
+def road_sign(target, r, s, sgn, var, extra=1.0, along=0.0, t_=5):
+    """предмет справа по ходу для тех, кто подъезжает к точке s со стороны sgn; лицом к ним"""
+    x, z, y, tx, tz = side_point(r, s, sgn * (r["w"] / 2 + extra), along)
+    return add_prop(target, t_, x, z, yaw_of(sgn * tx, sgn * tz), var, y + 0.05)
+def approaches(r, s, d):
+    out = []
+    for sgn in (-1, 1):
+        if r["oneway"] and sgn == 1:
+            continue
+        if 0 < s + sgn * d < r["L"]:
+            out.append(sgn)
+    return out
+
+# светофоры и знаки у переходов
+def zebra_furniture(target, r, s, signals):
+    hw = r["w"] / 2
+    for sgn in (-1, 1):
+        if signals:
+            x, z, y, tx, tz = side_point(r, s, sgn * (hw + 0.7))
+            add_prop(target, 4, x, z, yaw_of(-sgn * tz, sgn * tx), 0, y + 0.05)   # лицом через дорогу
+            if not (r["oneway"] and sgn == 1):
+                road_sign(target, r, s, sgn, 0, 0.7, sgn * 3.6, 3)
+        if not (r["oneway"] and sgn == 1):
+            road_sign(target, r, s, sgn, 0, 1.3, sgn * 2.6)
+sig_cross = set()
+for n in tagged_nodes:
+    t = n["tags"]
+    if t.get("highway") == "crossing" and (t.get("crossing") == "traffic_signals" or t.get("crossing:signals") == "yes"):
+        sig_cross.add(n["id"])
+for q in decals:
+    if q[0] == 1 and len(q) > 8:
+        pass
+for (r_, s_, nid_) in zebra_log:
+    zebra_furniture(props, r_, s_, nid_ in sig_cross)
+for (r_, s_) in zebra_log_local:
+    zebra_furniture(local_props, r_, s_, False)
+
+# перекрёстки: светофоры, «уступи дорогу», «главная дорога»
+n_sig = n_yield = 0
+sig_nodes = {n["id"] for n in tagged_nodes if n["tags"].get("highway") == "traffic_signals"}
+for nid, ent in node_roads.items():
+    is_junction = sum(e[2] for e in ent) >= 3
+    has_sig = nid in sig_nodes
+    if not (is_junction or has_sig):
+        continue
+    best_cls = min(car[e[0]]["cls"] for e in ent)
+    for ri, s, arms in ent:
+        r = car[ri]
+        if r["cls"] > 3:
+            continue
+        others = [car[rj] for rj, _, _ in ent if rj != ri]
+        rad = (max([o["w"] for o in others] + [0.0]) / 2 + 2.5) if is_junction else 0.5
+        for sgn in approaches(r, s, rad + 1.0):
+            if has_sig and r["cls"] <= 2:
+                if road_sign(props, r, s, sgn, 0, 0.7, sgn * rad, 3):
+                    n_sig += 1
+                    x, z, y, tx, tz = at(r, s + sgn * rad)
+                    yw = yaw_of(tx, tz)
+                    if r["oneway"]:
+                        decals.append((2, x, z, y + 0.02, yw, 0.0, r["w"] - 0.6, 0.4))
+                    else:
+                        o = sgn * r["w"] / 4
+                        decals.append((2, x + tz * o, z - tx * o, y + 0.02, yw, 0.0, r["w"] / 2 - 0.4, 0.4))
+            if not is_junction:
+                continue
+            if r["cls"] > best_cls and best_cls <= 1 and (r["cls"] <= 2 or best_cls == 0):
+                if road_sign(props, r, s, sgn, 1, 1.3, sgn * (rad + 1.5)):
+                    n_yield += 1
+            elif r["cls"] == best_cls and r["cls"] <= 1 and any(o["cls"] > r["cls"] and o["cls"] <= 2 for o in others) and hsh(nid, ri, sgn) % 3 == 0:
+                road_sign(props, r, s, sgn, 2, 1.3, sgn * (rad + 9.0))
+print("светофоров:", n_sig, "знаков «уступи»:", n_yield)
+
+# остановки
+n_bus = 0
+for n in tagged_nodes:
+    t = n["tags"]
+    if t.get("highway") == "bus_stop" or (t.get("public_transport") == "platform" and t.get("bus") == "yes"):
+        x, z = nodes[n["id"]]
+        b_ = nearest_road(x, z, 18.0, 2)
+        if not b_ or p_near(x, z, 12.0, (6,)):
+            continue
+        r = car[b_[1]]
+        ax, az, ay, tx, tz = side_point(r, b_[2], 0.0)
+        side = 1 if (x - ax) * tz - (z - az) * tx > 0 else -1
+        off = side * max(r["w"] / 2 + 2.6, min(b_[0], r["w"] / 2 + 5.0))
+        sx, sz, sy, tx, tz = side_point(r, b_[2], off)
+        if add_prop(props, 6, sx, sz, yaw_of(-side * tz, side * tx), hsh(n["id"]) % 2, None if b_[0] > r["w"] / 2 + 3 else sy + 0.05):
+            n_bus += 1
+            road_sign(props, r, b_[2], side, 9, 1.3, side * 4.5)
+print("остановок:", n_bus)
+
+# фонари: с карты, из Mapillary, и достроенные вдоль улиц, где данных нет
+def lamp_at(target, x, z, maxd=14.0):
+    b_ = nearest_road(x, z, maxd, 3)
+    if b_:
+        r = car[b_[1]]
+        ax, az, ay, tx, tz = side_point(r, b_[2], 0.0)
+        return add_prop(target, 1, x, z, yaw_of(ax - x, az - z), 0)
+    return add_prop(target, 1, x, z, float(hsh(x, z) % 360), 1)
+n_lamp = 0
+for n in tagged_nodes:
+    if n["tags"].get("highway") == "street_lamp":
+        x, z = nodes[n["id"]]
+        n_lamp += bool(lamp_at(props, x, z))
+n_lamp_map = n_lamp
+for r in car:
+    if r["cls"] > 2 or r["L"] < 30 or r["bridge"]:
+        continue
+    hw = r["w"] / 2
+    step = 38.0 if r["cls"] == 0 else 44.0
+    side = -1 if hsh(r["id"]) % 2 else 1
+    s = 12.0 + hsh(r["id"], 1) % 12
+    while s < r["L"] - 8:
+        x, z, y, tx, tz = side_point(r, s, side * (hw + 0.6))
+        ui_ = min(max(int((x - X0) / CELL), 0), GW - 1); uj_ = min(max(int((z - Z0) / CELL), 0), GH - 1)
+        if urban[uj_, ui_] and not p_near(x, z, 26.0, (1,)) and not any(abs(s - c_) < rad_ + 1 for c_, rad_ in r["kcut"]):
+            n_lamp += bool(add_prop(props, 1, x, z, yaw_of(-side * tz, side * tx), 0, y + 0.05))
+        s += step
+print("фонарей:", n_lamp, "(с карты %d)" % n_lamp_map)
+for n in tagged_nodes:
+    a_ = n["tags"].get("amenity")
+    if a_ in ("bench", "waste_basket"):
+        x, z = nodes[n["id"]]
+        add_prop(props, 7 if a_ == "bench" else 8, x, z, float(hsh(n["id"]) % 4 * 90), 0)
+
+# Mapillary: то, чего нет на карте (только в локальный слой)
+MLY_SIGNS = {"regulatory--yield": 1, "regulatory--priority-road": 2, "regulatory--stop": 3, "regulatory--no-entry": 4,
+             "regulatory--maximum-speed-limit": 5, "regulatory--no-stopping": 5, "regulatory--no-heavy-goods-vehicles": 5, "regulatory--no-parking": 5,
+             "regulatory--go-straight": 6, "regulatory--keep-right": 6, "regulatory--turn": 6, "regulatory--roundabout": 6, "regulatory--pass-on-either-side": 6,
+             "regulatory--one-way": 6, "warning--": 7, "information--parking": 8, "information--pedestrians-crossing": 0}
+n_ml = 0
+for v_, x, z in mly:
+    if v_ == "object--street-light":
+        if not p_near(x, z, 14.0, (1,)):
+            n_ml += bool(lamp_at(local_props, x, z))
+    elif v_ == "object--support--utility-pole":
+        if not p_near(x, z, 6.0, (1, 2)):
+            b_ = nearest_road(x, z, 20.0, 4)
+            yw = 0.0
+            if b_:
+                _, _, _, tx, tz = at(car[b_[1]], b_[2]); yw = yaw_of(tx, tz)
+            n_ml += bool(add_prop(local_props, 2, x, z, yw, hsh(x, z) % 2))
+    elif v_ in ("object--bench", "object--trash-can"):
+        if not p_near(x, z, 3.0, (7, 8)):
+            b_ = nearest_road(x, z, 25.0, 4)
+            yw = float(hsh(x, z) % 360)
+            if b_:
+                ax, az, _, tx, tz = at(car[b_[1]], b_[2]); yw = yaw_of(ax - x, az - z)
+            n_ml += bool(add_prop(local_props, 7 if v_ == "object--bench" else 8, x, z, yw, 0))
+    else:
+        var = next((k_ for p_, k_ in MLY_SIGNS.items() if v_.startswith(p_)), None)
+        if var is None or p_near(x, z, 7.0 if var == 0 else 3.0, (5,)):
+            continue
+        b_ = nearest_road(x, z, 16.0, 3)
+        if not b_:
+            continue
+        r = car[b_[1]]
+        ax, az, ay, tx, tz = side_point(r, b_[2], 0.0)
+        side = 1 if (x - ax) * tz - (z - az) * tx > 0 else -1
+        if r["oneway"]:
+            side_f = -1
+        else:
+            side_f = side
+        d_ = max(b_[0], r["w"] / 2 + 1.0)
+        sx, sz, sy, tx, tz = side_point(r, b_[2], side * d_)
+        n_ml += bool(add_prop(local_props, 5, sx, sz, yaw_of(side_f * tx, side_f * tz), var))
+print("предметов:", len(props), "из Mapillary:", n_ml)
+if os.environ.get("CITY_DEBUG"):
+    json.dump([props, local_props], open(os.environ["CITY_DEBUG"], "w"))
+
 # ---------- раскладка по квадратам ----------
 def chunk_of(x, z):
     return int(math.floor((x - X0) / CHUNK)), int(math.floor((z - Z0) / CHUNK))
@@ -839,7 +1043,7 @@ def split_line(pts, ys):
 chunks = {}
 def ch(c):
     if c not in chunks:
-        chunks[c] = {"b": [], "r": [], "w": [], "l": [], "d": []}
+        chunks[c] = {"b": [], "r": [], "w": [], "l": [], "d": [], "p": []}
     return chunks[c]
 def valid(c):
     return 0 <= c[0] < NX and 0 <= c[1] < NZ
@@ -859,20 +1063,28 @@ for ln in lines:
 for q in decals:
     c = chunk_of(q[1], q[2])
     if valid(c): ch(c)["d"].append(q)
+for q in props:
+    c = chunk_of(q[1], q[2])
+    if valid(c): ch(c)["p"].append(q)
 def pack_decal(q, ox, oz):
     t_, x, z, y, yaw, slope, a, b = q
     return struct.pack("<BhhhhbBB", t_, i16((x - ox) / U), i16((z - oz) / U), i16(y * 100), i16(yaw * 10),
                        max(-127, min(127, int(round(slope * 100)))), max(1, min(255, int(round(a * 10)))), max(1, min(255, int(round(b * 10)))))
 # локальный слой (Mapillary): отдельный файл, в публичный репозиторий не кладётся
-if local_decals:
-    loc = {}
+if local_decals or local_props:
+    loc = {}; locp = {}
     for q in local_decals:
         c = chunk_of(q[1], q[2])
         if valid(c):
             ox, oz = X0 + c[0] * CHUNK, Z0 + c[1] * CHUNK
             loc.setdefault("%d_%d" % c, []).append([q[0], round(q[1] - ox, 2), round(q[2] - oz, 2), round(q[3], 2), round(q[4], 1), round(q[5], 3), round(q[6], 1), round(q[7], 1)])
-    json.dump({"attribution": "Mapillary, CC BY-SA", "decals": loc}, open(os.path.join(OUT, "local_extra.json"), "w"), separators=(",", ":"))
-    print("локальный слой Mapillary:", len(local_decals))
+    for q in local_props:
+        c = chunk_of(q[1], q[2])
+        if valid(c):
+            ox, oz = X0 + c[0] * CHUNK, Z0 + c[1] * CHUNK
+            locp.setdefault("%d_%d" % c, []).append([q[0], round(q[1] - ox, 2), round(q[2] - oz, 2), round(q[3], 2), round(q[4], 1), q[5]])
+    json.dump({"attribution": "Mapillary, CC BY-SA", "decals": loc, "props": locp}, open(os.path.join(OUT, "local_extra.json"), "w"), separators=(",", ":"))
+    print("локальный слой Mapillary:", len(local_decals), "+", len(local_props))
 
 def i16(v):
     return max(-32767, min(32767, int(round(v))))
@@ -923,6 +1135,10 @@ for c, d in chunks.items():
     out += struct.pack("<H", len(dl))
     for q in dl:
         out += pack_decal(q, ox, oz)
+    pl = d["p"][:65535]
+    out += struct.pack("<H", len(pl))
+    for t_, x, z, y, yaw, var in pl:
+        out += struct.pack("<BhhhhB", t_, i16((x - ox) / U), i16((z - oz) / U), i16(y * 100), i16(((yaw + 180) % 360 - 180) * 10), var)
     records[c] = bytes(out)
 # квадраты только с водой тоже нужны (лист воды)
 for cz in range(NZ):
@@ -931,7 +1147,7 @@ for cz in range(NZ):
             continue
         wb = water_blob(cx, cz)
         if wb[0]:
-            records[(cx, cz)] = wb + struct.pack("<HHHHH", 0, 0, 0, 0, 0)
+            records[(cx, cz)] = wb + struct.pack("<HHHHHH", 0, 0, 0, 0, 0, 0)
 
 head = bytearray(b"CGEO") + struct.pack("<II", NX, NZ)
 table = bytearray()
@@ -1000,10 +1216,10 @@ if "home" not in spawns:
     spawns["home"] = [0.0, 0.0]
 
 meta = {
-    "version": 2, "name": "Черкассы", "origin": {"lat": LAT0, "lon": LON0}, "m_per_deg": {"lat": MLAT, "lon": MLON},
+    "version": 3, "name": "Черкассы", "origin": {"lat": LAT0, "lon": LON0}, "m_per_deg": {"lat": MLAT, "lon": MLON},
     "x0": X0, "z0": Z0, "nx": NX, "nz": NZ, "chunk": CHUNK, "cell": CELL, "sea_level_offset": YOFF,
     "spawns": spawns, "spawn_yaw": extra.get("spawn_yaw", 0), "exits": exits, "places": places,
-    "counts": {"buildings": len(buildings), "roads": len(roads), "barriers": len(barriers), "pois": len(pois), "lines": len(lines), "decals": len(decals)},
+    "counts": {"buildings": len(buildings), "roads": len(roads), "barriers": len(barriers), "pois": len(pois), "lines": len(lines), "decals": len(decals), "props": len(props)},
     "attribution": "Карта: © участники OpenStreetMap (ODbL) · Высоты: NASA SRTM",
 }
 json.dump(meta, open(os.path.join(OUT, "city.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
