@@ -53,6 +53,13 @@ var idx := PackedInt32Array()
 var dv := PackedVector3Array()
 var dc := PackedColorArray()
 var di := PackedInt32Array()
+# мелкие детали (столбики, прутья, перекладины): видны только вблизи, без теней и столкновений
+var ev := PackedVector3Array()
+var en := PackedVector3Array()
+var ec := PackedColorArray()
+var ei := PackedInt32Array()
+var cv := PackedVector3Array()      # невидимые стенки для столкновений (сетка, прутья)
+var _det := false                   # куда сейчас пишет _pq: в детали или в основную сетку
 # свет: накладывается сложением, виден только ночью
 var gv := PackedVector3Array()
 var gc := PackedColorArray()
@@ -108,9 +115,31 @@ func _build(c: Vector2i, with_shape: bool) -> Dictionary:
 		gm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, ga)
 		out["glow"] = gm
 		out["lamps"] = lamps
+	if not ev.is_empty():
+		var ea := []
+		ea.resize(Mesh.ARRAY_MAX)
+		ea[Mesh.ARRAY_VERTEX] = ev
+		ea[Mesh.ARRAY_NORMAL] = en
+		ea[Mesh.ARRAY_COLOR] = ec
+		ea[Mesh.ARRAY_INDEX] = ei
+		var em := ArrayMesh.new()
+		em.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, ea)
+		out["detail"] = em
+		out["tris_detail"] = ei.size() / 3
+	out["cfaces"] = cv
 	if with_shape:
-		out["shape"] = mesh.create_trimesh_shape()
+		out["shape"] = make_shape(mesh, cv)
 	return out
+
+## Форма для столкновений: видимая сетка плюс невидимые стенки.
+static func make_shape(mesh: ArrayMesh, extra: PackedVector3Array) -> Shape3D:
+	if extra.is_empty():
+		return mesh.create_trimesh_shape()
+	var faces := mesh.get_faces()
+	faces.append_array(extra)
+	var sh := ConcavePolygonShape3D.new()
+	sh.set_faces(faces)
+	return sh
 
 # ---------- земля ----------
 func _terrain(c: Vector2i) -> void:
@@ -194,16 +223,16 @@ func _features(p: int) -> ArrayMesh:
 	var nbar := g.decode_u16(p); p += 2
 	for _w in nbar:
 		var height := g[p + 1] * 0.1
+		var ftype := g[p] & 15
+		var fvar := g[p] >> 4
 		var npts := g.decode_u16(p + 2)
 		p += 4
-		var prev := Vector3.ZERO
+		var fpts := PackedVector3Array()
+		fpts.resize(npts)
 		for k in npts:
-			var q := Vector3(g.decode_s16(p) * U, g.decode_s16(p + 4) * 0.01, g.decode_s16(p + 2) * U)
+			fpts[k] = Vector3(g.decode_s16(p) * U, g.decode_s16(p + 4) * 0.01, g.decode_s16(p + 2) * U)
 			p += 6
-			if k > 0:
-				_wall(prev, q, prev.y - 0.5, q.y - 0.5, prev.y + height, q.y + height, BARRIER_COLOR)
-				_wall(q, prev, q.y - 0.5, prev.y - 0.5, q.y + height, prev.y + height, BARRIER_COLOR)
-			prev = q
+		_fence(fpts, ftype, fvar, height)
 	# линии: разметка, бордюры, парковки
 	var nl := g.decode_u16(p); p += 2
 	for _l in nl:
@@ -519,17 +548,26 @@ const SIGN_YELLOW := Color(0.88, 0.68, 0.08)
 ## Четырёхугольник, развёрнутый лицом в сторону want.
 func _pq(a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color, want: Vector3) -> void:
 	var n := (c - b).cross(b - a).normalized()
-	var base := v.size()
 	if n.dot(want) < 0.0:
 		n = -n
-		v.push_back(d); v.push_back(c); v.push_back(b); v.push_back(a)
+		var t := a; a = d; d = t
+		t = b; b = c; c = t
+	if _det:
+		var base := ev.size()
+		ev.push_back(a); ev.push_back(b); ev.push_back(c); ev.push_back(d)
+		for _k in 4:
+			en.push_back(n)
+			ec.push_back(color)
+		ei.push_back(base); ei.push_back(base + 1); ei.push_back(base + 2)
+		ei.push_back(base); ei.push_back(base + 2); ei.push_back(base + 3)
 	else:
+		var base := v.size()
 		v.push_back(a); v.push_back(b); v.push_back(c); v.push_back(d)
-	for _k in 4:
-		nrm.push_back(n)
-		col.push_back(color)
-	idx.push_back(base); idx.push_back(base + 1); idx.push_back(base + 2)
-	idx.push_back(base); idx.push_back(base + 2); idx.push_back(base + 3)
+		for _k in 4:
+			nrm.push_back(n)
+			col.push_back(color)
+		idx.push_back(base); idx.push_back(base + 1); idx.push_back(base + 2)
+		idx.push_back(base); idx.push_back(base + 2); idx.push_back(base + 3)
 
 ## Коробка: центр и три полуоси.
 func _pbox(c: Vector3, ax: Vector3, ay: Vector3, az: Vector3, color: Color) -> void:
@@ -679,6 +717,59 @@ func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
 				_pbox(p + up * 0.36 + r * 0.7 * s, r * 0.03, up * 0.36, f * 0.2, METAL_DARK * 1.5)
 		8:  # урна
 			_pbox(p + up * 0.55, r * 0.17, up * 0.40, f * 0.17, Color(0.16, 0.26, 0.18))
+		9:  # качели
+			var pc: Color = [Color(0.70, 0.16, 0.12), Color(0.16, 0.36, 0.62), Color(0.80, 0.62, 0.10)][pvar % 3]
+			for s: float in [-1.0, 1.0]:
+				_ppole(p + r * 1.3 * s + f * 0.7, p + r * 1.3 * s + up * 2.2, 0.04, 0.04, pc, 3)
+				_ppole(p + r * 1.3 * s - f * 0.7, p + r * 1.3 * s + up * 2.2, 0.04, 0.04, pc, 3)
+				_ppole(p + r * 0.45 * s + up * 2.2, p + r * 0.45 * s + up * 0.5, 0.012, 0.012, METAL_DARK * 2.0, 3)
+			_ppole(p - r * 1.3 + up * 2.2, p + r * 1.3 + up * 2.2, 0.04, 0.04, pc, 3)
+			_pbox(p + up * 0.5, r * 0.5, up * 0.02, f * 0.12, Color(0.45, 0.33, 0.20))
+		10:  # горка
+			var pc: Color = [Color(0.16, 0.36, 0.62), Color(0.70, 0.16, 0.12), Color(0.20, 0.50, 0.25)][pvar % 3]
+			_pbox(p + up * 0.75 - f * 1.2, r * 0.45, up * 0.75, f * 0.45, pc * 0.8)
+			_pq(p + up * 1.5 - f * 0.75 - r * 0.35, p + up * 1.5 - f * 0.75 + r * 0.35, p + up * 0.15 + f * 1.9 + r * 0.35, p + up * 0.15 + f * 1.9 - r * 0.35, Color(0.70, 0.72, 0.74), up + f * 0.5)
+			_pq(p + up * 1.5 - f * 0.75 - r * 0.35, p + up * 1.5 - f * 0.75 + r * 0.35, p + up * 0.15 + f * 1.9 + r * 0.35, p + up * 0.15 + f * 1.9 - r * 0.35, pc, -up - f * 0.5)
+		11:  # песочница
+			var wood := Color(0.62, 0.45, 0.20)
+			for s: float in [-1.0, 1.0]:
+				_pbox(p + up * 0.22 + r * 1.5 * s, r * 0.05, up * 0.14, f * 1.5, wood)
+				_pbox(p + up * 0.22 + f * 1.5 * s, r * 1.5, up * 0.14, f * 0.05, wood)
+			_pq(p + up * 0.26 - r * 1.45 - f * 1.45, p + up * 0.26 + r * 1.45 - f * 1.45, p + up * 0.26 + r * 1.45 + f * 1.45, p + up * 0.26 - r * 1.45 + f * 1.45, Color(0.76, 0.68, 0.48), up)
+		12:  # турники
+			var pc := Color(0.20, 0.42, 0.26)
+			var hs: Array[float] = [2.3, 1.8, 1.3]
+			for k in 4:
+				_ppole(p + r * (k - 1.5) * 1.3, p + r * (k - 1.5) * 1.3 + up * (hs[mini(k, 2)] + 0.1), 0.04, 0.04, pc, 3)
+			for k in 3:
+				_ppole(p + r * (k - 1.5) * 1.3 + up * hs[k], p + r * (k - 0.5) * 1.3 + up * hs[k], 0.022, 0.022, METAL_DARK * 3.0, 3)
+		13:  # футбольные ворота
+			var hw := 2.5 if pvar == 0 else 3.66
+			var gh := 2.0 if pvar == 0 else 2.44
+			var wc := Color(0.86, 0.86, 0.84)
+			for s: float in [-1.0, 1.0]:
+				_ppole(p + r * hw * s, p + r * hw * s + up * gh, 0.05, 0.05, wc, 4)
+				_ppole(p + r * hw * s + up * gh, p + r * hw * s - f * 1.2 + up * 0.15, 0.025, 0.025, wc, 3)
+			_ppole(p - r * hw + up * gh, p + r * hw + up * gh, 0.05, 0.05, wc, 4)
+		14:  # баскетбольное кольцо
+			_ppole(p - f * 0.6, p - f * 0.6 + up * 3.3, 0.07, 0.06, METAL_DARK * 2.0, 4)
+			_pbox(p - f * 0.45 + up * 3.25, r * 0.9, up * 0.52, f * 0.03, Color(0.84, 0.84, 0.82))
+			_ppoly(p - f * 0.15 + up * 3.05, r, f, _ngon(8, 0.23), Color(0.85, 0.35, 0.10), up)
+			_ppoly(p - f * 0.15 + up * 3.05, r, f, _ngon(8, 0.23), Color(0.85, 0.35, 0.10), -up)
+		15:  # мусорные контейнеры у бетонной стенки
+			var wallc := Color(0.56, 0.56, 0.54)
+			_pbox(p + up * 0.9 - f * 0.9, r * 2.3, up * 0.9, f * 0.06, wallc)
+			_pbox(p + up * 0.9 - r * 2.3, r * 0.06, up * 0.9, f * 0.9, wallc)
+			_pbox(p + up * 0.9 + r * 2.3, r * 0.06, up * 0.9, f * 0.9, wallc)
+			var bins: Array[Color] = [Color(0.15, 0.32, 0.20), Color(0.18, 0.26, 0.40), Color(0.34, 0.35, 0.36)]
+			for k in 3:
+				var bc: Color = bins[(k + pvar) % 3]
+				_pbox(p + up * 0.62 + r * (k - 1.0) * 1.4 - f * 0.2, r * 0.6, up * 0.55, f * 0.42, bc)
+				_pbox(p + up * 1.21 + r * (k - 1.0) * 1.4 - f * 0.2, r * 0.63, up * 0.04, f * 0.45, bc * 0.75)
+		16:  # бетонный блок
+			_pbox(p + up * 0.42, r * 0.9, up * 0.30, f * 0.30, Color(0.60, 0.60, 0.58) if pvar == 0 else Color(0.72, 0.70, 0.66))
+		17:  # столбик
+			_ppole(p, p + up * 0.95, 0.07, 0.06, Color(0.30, 0.31, 0.32), 4)
 
 # ---------- свет ----------
 func _glow_quad(c: Vector3, a: Vector3, b: Vector3, color: Color) -> void:
@@ -711,3 +802,173 @@ func _lamp_glow(head: Vector3, ground_y: float, radius: float, power: float, see
 		gi.push_back(base); gi.push_back(base + 1 + k); gi.push_back(base + 1 + k2)
 		gi.push_back(base + 1 + k); gi.push_back(base + 13 + k); gi.push_back(base + 13 + k2)
 		gi.push_back(base + 1 + k); gi.push_back(base + 13 + k2); gi.push_back(base + 1 + k2)
+
+# ---------- заборы ----------
+const PROF_COLORS: Array[Color] = [Color(0.16, 0.33, 0.22), Color(0.36, 0.24, 0.17), Color(0.42, 0.13, 0.14), Color(0.45, 0.46, 0.47), Color(0.20, 0.30, 0.45)]
+const WOOD_COLORS: Array[Color] = [Color(0.22, 0.40, 0.26), Color(0.40, 0.29, 0.19), Color(0.50, 0.47, 0.42)]
+const BRICK_COLORS: Array[Color] = [Color(0.55, 0.25, 0.18), Color(0.78, 0.77, 0.73), Color(0.72, 0.60, 0.38)]
+const BAR_COLORS: Array[Color] = [Color(0.10, 0.10, 0.11), Color(0.30, 0.20, 0.14), Color(0.14, 0.28, 0.18)]
+const CONCRETE_COLORS: Array[Color] = [Color(0.55, 0.55, 0.53), Color(0.80, 0.80, 0.77), Color(0.78, 0.66, 0.62)]
+
+## Точки вдоль линии примерно через step метров (концы отрезков сохраняются).
+func _stations(pts: PackedVector3Array, step: float) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	out.push_back(pts[0])
+	for k in range(1, pts.size()):
+		var a := pts[k - 1]
+		var b := pts[k]
+		var n := maxi(1, int(round(Vector2(b.x - a.x, b.z - a.z).length() / step)))
+		for i in range(1, n + 1):
+			out.push_back(a.lerp(b, float(i) / n))
+	return out
+
+## Стенка с двух сторон от y0 до y1 над землёй.
+func _panel(a: Vector3, b: Vector3, y0: float, y1: float, color: Color) -> void:
+	_wall(a, b, a.y + y0, b.y + y0, a.y + y1, b.y + y1, color)
+	_wall(b, a, b.y + y0, a.y + y0, b.y + y1, a.y + y1, color)
+
+## Тонкая полоса (перекладина, проволока), видна с двух сторон.
+func _strip(a: Vector3, b: Vector3, y0: float, y1: float, color: Color) -> void:
+	var d := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
+	var n := Vector3(d.z, 0.0, -d.x)
+	var up0 := Vector3(0.0, y0, 0.0)
+	var up1 := Vector3(0.0, y1, 0.0)
+	_pq(a + up0, b + up0, b + up1, a + up1, color, n)
+
+func _cwall(a: Vector3, b: Vector3, h: float) -> void:
+	var a1 := a + Vector3(0.0, h, 0.0)
+	var b1 := b + Vector3(0.0, h, 0.0)
+	var a0 := a - Vector3(0.0, 0.4, 0.0)
+	var b0 := b - Vector3(0.0, 0.4, 0.0)
+	for t: Array in [[a0, b0, b1], [a0, b1, a1], [b0, a0, a1], [b0, a1, b1]]:
+		cv.push_back(t[0]); cv.push_back(t[1]); cv.push_back(t[2])
+
+## Столбик. Тонкий — трёхгранный, толстый — четыре стенки и крышка, развёрнут вдоль забора.
+func _post(p: Vector3, half: float, h: float, color: Color, dir: Vector3 = Vector3.RIGHT) -> void:
+	if half < 0.06:
+		_ppole(p - Vector3(0.0, 0.2, 0.0), p + Vector3(0.0, h, 0.0), half, half, color, 3)
+		return
+	var c := p + Vector3(0.0, h * 0.5 - 0.1, 0.0)
+	var ax := dir * half
+	var az := Vector3(dir.z, 0.0, -dir.x) * half
+	var ay := Vector3(0.0, h * 0.5 + 0.1, 0.0)
+	for s: float in [-1.0, 1.0]:
+		_pq(c + ax * s - ay - az, c + ax * s + ay - az, c + ax * s + ay + az, c + ax * s - ay + az, color, ax * s)
+		_pq(c + az * s - ax - ay, c + az * s + ax - ay, c + az * s + ax + ay, c + az * s - ax + ay, color * 0.9, az * s)
+	_pq(c + ay - ax - az, c + ay + ax - az, c + ay + ax + az, c + ay - ax + az, color * 1.08, Vector3.UP)
+
+func _dir_at(st: PackedVector3Array, k: int) -> Vector3:
+	var a := st[maxi(k - 1, 0)]
+	var b := st[mini(k + 1, st.size() - 1)]
+	var d := Vector3(b.x - a.x, 0.0, b.z - a.z)
+	return d.normalized() if d.length_squared() > 0.0001 else Vector3.RIGHT
+
+func _fence(pts: PackedVector3Array, ftype: int, fvar: int, h: float) -> void:
+	if pts.size() < 2:
+		return
+	var seed_i := int(pts[0].x * 7.0) + int(pts[0].z * 13.0)
+	var shade := 0.92 + 0.12 * float(seed_i & 7) / 7.0
+	match ftype:
+		1:  # бетонные плиты
+			var st := _stations(pts, 2.5)
+			var c := CONCRETE_COLORS[fvar % 3] * shade
+			for k in range(1, st.size()):
+				_panel(st[k - 1], st[k], -0.5, h, c * (1.0 if k % 2 == 0 else 0.93))
+				_panel(st[k - 1], st[k], h, h + 0.0, c)
+		2, 7:  # профнастил или кирпич со столбами
+			var st := _stations(pts, 3.0)
+			var c: Color = (PROF_COLORS[fvar % 5] if ftype == 2 else BRICK_COLORS[fvar % 3]) * shade
+			var metal := ftype == 2 and fvar == 3
+			var pc: Color = METAL_DARK * 1.6 if metal else (BRICK_COLORS[absi(fvar + seed_i) % 3] * 0.9 if ftype == 2 else c * 0.85)
+			for k in range(1, st.size()):
+				_panel(st[k - 1], st[k], -0.5, h, c)
+			_det = true
+			for k in st.size():
+				_post(st[k], 0.05 if metal else 0.20, h + 0.14, pc, _dir_at(st, k))
+			_det = false
+		3:  # штакетник
+			var st := _stations(pts, 2.5)
+			var c := WOOD_COLORS[fvar % 3] * shade
+			for k in range(1, st.size()):
+				_panel(st[k - 1], st[k], 0.08, h, c * (1.0 if k % 2 == 0 else 0.95))
+			_det = true
+			for q in st:
+				_post(q, 0.05, h + 0.08, c * 0.75)
+			_det = false
+		4, 5, 9:  # сетка, прутья, низкое ограждение: видно насквозь
+			var step := 2.5 if ftype != 9 else 2.0
+			var st := _stations(pts, step)
+			var c := Color(0.42, 0.44, 0.45)
+			if ftype == 5:
+				c = BAR_COLORS[fvar % 3]
+			elif ftype == 9:
+				c = Color(0.82, 0.82, 0.80) if fvar % 2 == 0 else Color(0.20, 0.42, 0.26)
+			for k in range(1, pts.size()):
+				_cwall(pts[k - 1], pts[k], h)
+			_det = true
+			for q in st:
+				_post(q, 0.035 if ftype != 5 else 0.05, h + 0.05, c)
+			for k in range(1, st.size()):
+				var a := st[k - 1]
+				var b := st[k]
+				_strip(a, b, h - 0.07, h - 0.02, c)
+				if ftype == 9:
+					_strip(a, b, h * 0.45, h * 0.45 + 0.04, c)
+					continue
+				_strip(a, b, 0.12, 0.17, c)
+				if ftype == 4:
+					_strip(a, b, h * 0.5, h * 0.5 + 0.03, c)
+					# сетка: редкие косые проволоки, чтобы читалась «рабица»
+					var nd := maxi(2, int(a.distance_to(b) / 0.85))
+					for i in nd:
+						var p0 := a.lerp(b, float(i) / nd)
+						var p1 := a.lerp(b, float(i + 1) / nd)
+						var dn := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
+						var nn := Vector3(dn.z, 0.0, -dn.x)
+						_pq(p0 + Vector3(0, 0.17, 0), p0 + Vector3(0, 0.20, 0), p1 + Vector3(0, h - 0.07, 0), p1 + Vector3(0, h - 0.10, 0), c * 1.15, nn)
+				else:
+					var nb := maxi(2, int(a.distance_to(b) / 0.42))
+					var dn := (b - a) / nb
+					var wd := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized() * 0.015
+					for i in range(1, nb):
+						var q := a + dn * i
+						_strip(q - wd, q + wd, 0.17, h - 0.07, c)
+			_det = false
+		6:  # живая изгородь
+			var c := Color(0.17, 0.32, 0.16) * shade
+			for k in range(1, pts.size()):
+				var a := pts[k - 1]
+				var b := pts[k]
+				var d := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
+				var n := Vector3(d.z, 0.0, -d.x) * 0.45
+				var up := Vector3(0.0, h, 0.0)
+				var dn := Vector3(0.0, 0.4, 0.0)
+				_pq(a + n - dn, b + n - dn, b + n + up, a + n + up, c, n)
+				_pq(a - n - dn, b - n - dn, b - n + up, a - n + up, c * 0.9, -n)
+				_pq(a - n + up, b - n + up, b + n + up, a + n + up, c * 1.1, Vector3.UP)
+		8:  # отбойник
+			var c := Color(0.62, 0.64, 0.65)
+			for k in range(1, pts.size()):
+				_panel(pts[k - 1], pts[k], 0.45, 0.78, c)
+			_det = true
+			for q in _stations(pts, 2.0):
+				_post(q, 0.04, 0.7, c * 0.7)
+			_det = false
+		10:  # ворота с калиткой
+			var c := PROF_COLORS[fvar % 5] * 0.82
+			var a := pts[0]
+			var b := pts[pts.size() - 1]
+			for k in range(1, pts.size()):
+				_panel(pts[k - 1], pts[k], 0.06, h, c)
+			var gd := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
+			_post(a, 0.09, h + 0.18, METAL_DARK * 1.4, gd)
+			_post(b, 0.09, h + 0.18, METAL_DARK * 1.4, gd)
+			_post(a.lerp(b, 0.76), 0.07, h + 0.18, METAL_DARK * 1.4, gd)
+			_det = true
+			_strip(a, b, h - 0.25, h - 0.19, c * 1.5)
+			_strip(a, b, 0.35, 0.41, c * 1.5)
+			_det = false
+		_:  # стена, подпорная стена
+			var c := BARRIER_COLOR * shade
+			for k in range(1, pts.size()):
+				_panel(pts[k - 1], pts[k], -0.5, h, c)

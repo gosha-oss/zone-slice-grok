@@ -7,6 +7,7 @@ extends Node3D
 @export var max_tasks: int = 3               # сколько квадратов строится одновременно
 @export var apply_per_frame: int = 2
 @export var decal_range: float = 700.0       # как далеко видны разметка и люки, м
+@export var detail_range: float = 260.0      # как далеко видны мелкие детали (прутья, столбики), м
 @export var glow_range: float = 900.0        # как далеко видны огни и пятна света, м
 @export var real_lights: int = 14            # сколько ближайших фонарей светят по-настоящему
 
@@ -28,6 +29,8 @@ var _water_mat: StandardMaterial3D
 var _far: MeshInstance3D
 var _far_mat: ShaderMaterial
 var _glow_mat: ShaderMaterial
+var _detail_mat: StandardMaterial3D
+var tris_detail: int = 0
 var _night := 0.0
 var _glow_on := false
 var _omni: Array[OmniLight3D] = []
@@ -40,6 +43,8 @@ func _ready() -> void:
 	_mat.vertex_color_is_srgb = true
 	_mat.albedo_color = Color(0.7, 0.7, 0.7)
 	_mat.roughness = 0.92
+	_detail_mat = _mat.duplicate()
+	_detail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_water_mat = StandardMaterial3D.new()
 	_water_mat.albedo_color = ChunkBuilder.WATER_COLOR
 	_water_mat.roughness = 0.12
@@ -106,6 +111,7 @@ func _replan(c: Vector2i) -> void:
 		if Vector2(k - c).length() * CityData.CHUNK > limit:
 			var e: Dictionary = loaded[k]
 			tris_total -= e.tris
+			tris_detail -= int(e.get("tris_detail", 0))
 			e.node.queue_free()
 			loaded.erase(k)
 
@@ -124,8 +130,8 @@ func _task(k: Vector2i, with_shape: bool) -> void:
 	_done.append([k, res])
 	_mutex.unlock()
 
-func _shape_task(k: Vector2i, mesh: ArrayMesh) -> void:
-	var shape := mesh.create_trimesh_shape()
+func _shape_task(k: Vector2i, mesh: ArrayMesh, cfaces: PackedVector3Array) -> void:
+	var shape := ChunkBuilder.make_shape(mesh, cfaces)
 	_mutex.lock()
 	_done.append([k, {"shape_only": shape}])
 	_mutex.unlock()
@@ -165,6 +171,13 @@ func _apply_done() -> void:
 			dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			dm.visibility_range_end = decal_range
 			node.add_child(dm)
+		if res.get("detail") != null:
+			var em := MeshInstance3D.new()
+			em.mesh = res.detail
+			em.material_override = _detail_mat
+			em.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			em.visibility_range_end = detail_range
+			node.add_child(em)
 		var lamps := PackedVector3Array()
 		if res.get("glow") != null:
 			var gm := MeshInstance3D.new()
@@ -177,8 +190,9 @@ func _apply_done() -> void:
 			node.add_child(gm)
 			lamps = res.lamps
 		add_child(node)
-		loaded[k] = {"node": node, "mesh": res.mesh, "body": null, "pending_shape": false, "tris": res.tris, "lamps": lamps}
+		loaded[k] = {"node": node, "mesh": res.mesh, "body": null, "pending_shape": false, "tris": res.tris, "lamps": lamps, "cfaces": res.get("cfaces", PackedVector3Array()), "tris_detail": int(res.get("tris_detail", 0))}
 		tris_total += res.tris
+		tris_detail += int(res.get("tris_detail", 0))
 		if res.has("shape"):
 			_attach_body(k, res.shape)
 
@@ -206,7 +220,7 @@ func _update_collision(pos: Vector3) -> void:
 			var d := Vector2(center.x - pos.x, center.z - pos.z).length()
 			if d <= collision_radius and e.body == null and not e.pending_shape:
 				e.pending_shape = true
-				_task_ids.append(WorkerThreadPool.add_task(_shape_task.bind(k, e.mesh)))
+				_task_ids.append(WorkerThreadPool.add_task(_shape_task.bind(k, e.mesh, e.cfaces)))
 			elif d > collision_radius + CityData.CHUNK * 2.0 and e.body != null:
 				e.body.queue_free()
 				e.body = null

@@ -26,7 +26,7 @@ func _shot(name_: String) -> void:
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(out_dir.path_join(name_ + ".png"))
-	print("[autotest] снимок ", name_, " кадров/с ", Engine.get_frames_per_second(), " квадратов ", main.city.loaded.size(), " треуг ", main.city.tris_total)
+	print("[autotest] снимок ", name_, " кадров/с ", Engine.get_frames_per_second(), " квадратов ", main.city.loaded.size(), " треуг ", main.city.tris_total, " деталей ", main.city.tris_detail, " нарисовано ", RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
 
 func _goto(x: float, z: float, up: float, yaw_deg: float, pitch_deg: float, hour: float, fly: bool) -> void:
 	var p: CharacterBody3D = main.player
@@ -120,6 +120,16 @@ func _run() -> void:
 	await _shot("16_boulevard_night_above")
 	await _goto(652.0, -1097.0, 1.7, 139.2, 6.0, 20.6, true)
 	await _shot("17_signals_dusk")
+	await _goto(790.0, 3100.0, 7.0, 304.5, -14.0, 12.0, true)
+	await _shot("18_private_fences_above")
+	await _goto(809.0, 3084.8, 1.7, 48.7, 0.0, 12.0, true)
+	await _shot("19_private_street")
+	await _goto(694.0, -1222.0, 1.7, 133.0, -5.0, 12.0, true)
+	await _shot("20_playground")
+	await _goto(660.0, -1180.0, 1.7, 141.0, -5.0, 12.0, true)
+	await _shot("21_containers")
+	await _goto(599.0, -1221.0, 1.7, 45.0, 0.0, 12.0, true)
+	await _shot("22_bar_fence")
 	await _goto(503.5, -1165.0, 1.7, 139.3, 0.0, 11.0, true)
 	await _shot("13_bus_stop")
 	await _goto(1346.0, 1925.0, 1.7, 139.2, 5.0, 13.0, true)

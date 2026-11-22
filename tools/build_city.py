@@ -462,16 +462,14 @@ print("домов:", len(buildings))
 # ---------- заборы ----------
 BARRIER_H = {"fence": 1.8, "wall": 2.0, "hedge": 1.2, "retaining_wall": 1.5, "city_wall": 3.0, "guard_rail": 0.8, "handrail": 1.0}
 barriers = []
+raw_barriers = []
 for w in ways.values():
     t = w.get("tags", {})
     if t.get("barrier") in BARRIER_H and "building" not in t:
-        p = way_pts(w)
-        if len(p) >= 2:
-            p = resample(p, 6.0)
-            h = num(t.get("height")) or BARRIER_H[t["barrier"]]
-            ys = sample_tri(Hf, [q[0] for q in p], [q[1] for q in p])
-            barriers.append({"h": min(h, 6.0), "pts": p, "y": ys})
-print("заборов:", len(barriers))
+        ids = [n for n in w["nodes"] if n in nodes]
+        if len(ids) >= 2:
+            raw_barriers.append((t, ids))
+print("заборов на карте:", len(raw_barriers))
 
 # ---------- детали дорог: разметка, бордюры, тротуары, люки, заплаты ----------
 import random, zlib
@@ -804,6 +802,145 @@ for w in area_ways:
             n_park += 1
 print("парковочных мест:", n_park)
 
+# ---------- заборы: виды, ворота, частный сектор ----------
+# вид забора: 0 стена · 1 бетонные плиты · 2 профнастил · 3 штакетник · 4 сетка · 5 прутья · 6 живая изгородь
+#             7 кирпич · 8 отбойник · 9 низкое ограждение газона · 10 ворота · 11 подпорная стена
+FENCE_H = {0: 2.0, 1: 2.4, 2: 2.0, 3: 1.3, 4: 1.7, 5: 1.6, 6: 1.2, 7: 2.0, 8: 0.8, 9: 0.5, 10: 2.0, 11: 1.5}
+GATE_W = {"gate": 3.6, "lift_gate": 3.6, "swing_gate": 3.6, "sliding_gate": 3.6, "wicket_gate": 1.2, "kissing_gate": 1.2, "entrance": 1.4, "turnstile": 1.0}
+gate_nodes = {n["id"]: GATE_W[n["tags"]["barrier"]] for n in tagged_nodes if n["tags"].get("barrier") in GATE_W}
+def mask_of(draw_fn, dil=0):
+    im = Image.new("L", (FW_, FH_), 0); draw_fn(ImageDraw.Draw(im))
+    m = np.asarray(im, dtype=bool).copy()
+    return ndimage.binary_dilation(m, iterations=dil) if dil else m
+def _d_houses(d):
+    for b in buildings:
+        if b["kind"] == 1: d.polygon(fpx(b["pts"]), fill=1)
+def _d_big(d):
+    for b in buildings:
+        if b["kind"] in (2, 3, 5, 6, 7): d.polygon(fpx(b["pts"]), fill=1)
+def _d_car(d):
+    for r in car:
+        d.line(fpx(r["pts"]), fill=1, width=max(1, int(round(r["w"] / FR))))
+def _d_bar(d):
+    for t_, ids_ in raw_barriers:
+        d.line(fpx([nodes[i] for i in ids_]), fill=1, width=1)
+house_near = mask_of(_d_houses, 4)
+big_near = mask_of(_d_big, 3)
+car_mask = mask_of(_d_car)
+bar_mask = mask_of(_d_bar, 2)
+def cover_at(x, z):
+    return int(cover[min(max(int((z - Z0) / CELL), 0), GH - 1), min(max(int((x - X0) / CELL), 0), GW - 1)])
+def private_kind(seed):
+    h = seed % 100; v = seed // 100
+    if h < 50: return 2, v % 5
+    if h < 64: return 3, v % 3
+    if h < 74: return 7, v % 3
+    if h < 84: return 1, 2
+    if h < 92: return 5, v % 3
+    return 4, 0
+def fence_kind(t, x, z, seed):
+    b = t["barrier"]; ft = t.get("fence_type", ""); mat = t.get("material", "")
+    h = seed % 100; v = seed // 100
+    if b == "hedge": return 6, 0
+    if b == "guard_rail": return 8, 0
+    if b == "handrail": return 9, v % 2
+    if b == "retaining_wall": return 11, 0
+    if b == "city_wall": return 0, 0
+    c = cover_at(x, z); private = bool(fhit(house_near, [x], [z])[0]) and not fhit(big_near, [x], [z])[0]
+    if b == "wall":
+        if mat == "brick" or (not mat and private): return 7, v % 3
+        return (1, v % 2) if c == 6 else (0, 0)
+    if ft in ("chain_link", "wire", "net"): return 4, 0
+    if ft in ("metal", "bars", "railing", "pole"): return 5, v % 3
+    if ft == "wood": return 3, v % 3
+    if ft == "concrete" or mat == "concrete": return 1, v % 2
+    if mat == "brick": return 7, v % 3
+    if c == 6: return (1, v % 2) if h < 80 else (4, 0)
+    if private: return private_kind(seed)
+    if c in (8, 9): return (5, v % 3) if h < 60 else (4, 0)
+    if c == 7: return (4, 0) if h < 70 else (3, v % 3)
+    return (5, v % 3) if h < 50 else (4, 0)
+def poly_sub(P, S, s0, s1, step=6.0):
+    ss = np.unique(np.concatenate([[s0], S[(S > s0 + 0.3) & (S < s1 - 0.3)], np.arange(s0, s1, step)[1:], [s1]]))
+    X = np.interp(ss, S, [p[0] for p in P]); Z = np.interp(ss, S, [p[1] for p in P])
+    return list(zip(X.tolist(), Z.tolist()))
+def add_fence(pts, kind, var, h=None):
+    if len(pts) < 2:
+        return 0.0
+    ys = sample_tri(Hf, [q[0] for q in pts], [q[1] for q in pts])
+    barriers.append({"type": kind, "var": var, "h": min(h or FENCE_H[kind], 6.0), "pts": pts, "y": ys})
+    return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+km_osm = 0.0
+for t, ids in raw_barriers:
+    P = [nodes[i] for i in ids]
+    S = np.concatenate([[0.0], np.cumsum([math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(P, P[1:])])])
+    L = float(S[-1])
+    if L < 1.0:
+        continue
+    mid = poly_sub(P, S, L / 2, L / 2 + 0.01)[0]
+    kind, var = fence_kind(t, mid[0], mid[1], hsh(ids[0], len(ids)))
+    cuts = [(float(S[k]), gate_nodes[i] / 2) for k, i in enumerate(ids) if i in gate_nodes]
+    hh = num(t.get("height")) if "height" in t else None
+    for s0, s1 in intervals(L, cuts, 0.8):
+        km_osm += add_fence(poly_sub(P, S, s0, s1), kind, var, hh if hh and 0.3 < hh < 6 else None)
+# частный сектор: заборы вдоль улиц, которых нет на карте — участками, у каждого свои ворота
+km_gen = 0.0; n_plots = 0
+for r in car:
+    if r["cls"] > 2 or r["bridge"] or r["L"] < 20:
+        continue
+    hw = r["w"] / 2
+    ss = np.arange(1.0, r["L"] - 1.0, 1.5)
+    if len(ss) < 6:
+        continue
+    X = np.interp(ss, r["S"], r["X"]); Z = np.interp(ss, r["S"], r["Z"])
+    TX = np.interp(ss, r["S"], r["TX"]); TZ = np.interp(ss, r["S"], r["TZ"])
+    nn = np.hypot(TX, TZ); nn[nn < 1e-6] = 1.0; TX /= nn; TZ /= nn
+    far = np.ones(len(ss), dtype=bool)
+    for c_, rad_ in r["kcut"]:
+        far &= np.abs(ss - c_) > rad_ + 4.0
+    for side in (-1, 1):
+        off = side * (hw + 3.4)
+        PX = X + TZ * off; PZ = Z - TX * off
+        def probe(m, extra):
+            return fhit(m, X + TZ * (off + side * extra), Z - TX * (off + side * extra))
+        ok = far & probe(house_near, 9.0) & ~probe(big_near, 6.0) & ~fhit(bld_mask, PX, PZ) & ~fhit(car_mask, PX, PZ) & ~fhit(bar_mask, PX, PZ)
+        ok &= ~probe(foot_mask, 2.0) & ~probe(foot_mask, 4.5) & ~probe(car_mask, 3.0)
+        for a, b in runs(ok, ss, 9.0, 0.0):
+            s = a; k = 0
+            while b - s > 1.0:
+                seed = hsh(r["id"], side, int(s))
+                ln = 14.0 + seed % 13
+                if b - s - ln < 9.0:
+                    ln = b - s
+                e = s + ln
+                kind, var = private_kind(seed // 7)
+                def piece(s0, s1, kd, vr):
+                    if s1 - s0 < 0.6:
+                        return 0.0
+                    q = np.concatenate([[s0], np.arange(s0, s1, 5.0)[1:], [s1]])
+                    return add_fence(list(zip((np.interp(q, ss, PX)).tolist(), (np.interp(q, ss, PZ)).tolist())), kd, vr)
+                if ln >= 10.0:
+                    g0 = s + 1.5 + (seed // 1000) % max(1, int(ln - 7.5))
+                    km_gen += piece(s, g0, kind, var) + piece(g0, g0 + 4.4, 10, (seed // 50) % 5) + piece(g0 + 4.4, e, kind, var)
+                else:
+                    km_gen += piece(s, e, kind, var)
+                # боковой забор между участками
+                if k > 0 or True:
+                    bx = float(np.interp(s, ss, PX)); bz = float(np.interp(s, ss, PZ))
+                    ox = float(np.interp(s, ss, TZ)) * side; oz = -float(np.interp(s, ss, TX)) * side
+                    side_pts = [(bx, bz)]
+                    for d_ in range(3, 28, 3):
+                        qx, qz = bx + ox * d_, bz + oz * d_
+                        if fhit(bld_mask, [qx], [qz])[0] or fhit(car_mask, [qx], [qz])[0] or fhit(bar_mask, [qx], [qz])[0]:
+                            break
+                        side_pts.append((qx, qz))
+                    if len(side_pts) >= 3:
+                        sk, sv = private_kind(seed // 13)
+                        km_gen += add_fence(side_pts, sk if sk != 5 else 4, sv)
+                n_plots += 1; k += 1
+                s = e
+print("заборов: с карты %.0f км, достроено в частном секторе %.0f км, участков %d, ворот на карте %d" % (km_osm / 1000, km_gen / 1000, n_plots, len(gate_nodes)))
+
 # ---------- столбы, светофоры, знаки, остановки ----------
 # prop = (тип, x, z, y, yaw°, вид). yaw — куда «смотрит» предмет.
 # типы: 1 фонарь (вид 0 с вылетом к дороге, 1 парковый) · 2 столб ЛЭП · 3 светофор · 4 пешеходный светофор
@@ -963,6 +1100,75 @@ for n in tagged_nodes:
         x, z = nodes[n["id"]]
         add_prop(props, 7 if a_ == "bench" else 8, x, z, float(hsh(n["id"]) % 4 * 90), 0)
 
+# дворы: детские площадки, спортплощадки, мусорные контейнеры, бетонные блоки
+# типы: 9 качели · 10 горка · 11 песочница · 12 турник · 13 ворота футбольные · 14 баскетбольное кольцо
+#       15 мусорные контейнеры · 16 бетонный блок · 17 столбик
+def pt_in(poly, x, z):
+    c = False
+    for (x1, z1), (x2, z2) in zip(poly, poly[1:] + poly[:1]):
+        if (z1 > z) != (z2 > z) and x < (x2 - x1) * (z - z1) / (z2 - z1) + x1:
+            c = not c
+    return c
+n_play = n_pitch = 0
+for w in area_ways:
+    t = w["tags"]
+    if t.get("leisure") not in ("playground", "pitch") and t.get("amenity") not in ("waste_disposal", "recycling"):
+        continue
+    P = way_pts(w)[:-1]
+    if len(P) < 3:
+        continue
+    cx_ = sum(p[0] for p in P) / len(P); cz_ = sum(p[1] for p in P) / len(P)
+    area = abs(poly_area2(P)) / 2
+    seed = hsh(w["nodes"][0])
+    if t.get("leisure") == "playground":
+        rad = math.sqrt(area) / 2
+        yw = float(seed % 360)
+        items = [(9, -0.45, 0.0), (11, 0.4, 0.35), (10, 0.4, -0.4), (12, -0.1, 0.6)]
+        items = items[:1 if area < 30 else 2 if area < 70 else 4]
+        for t_, ax_, az_ in items:
+            x, z = cx_ + ax_ * rad, cz_ + az_ * rad
+            if pt_in(P, x, z):
+                add_prop(props, t_, x, z, yw + (0 if t_ != 10 else 90), seed % 3)
+        add_prop(props, 7, cx_ + 0.75 * rad, cz_, 270.0, 0)
+        n_play += 1
+    elif t.get("leisure") == "pitch":
+        sp = t.get("sport", "")
+        if sp not in ("soccer", "basketball", "multi", "streetball", "futsal"):
+            continue
+        e = max(zip(P, P[1:] + P[:1]), key=lambda ab: math.hypot(ab[1][0] - ab[0][0], ab[1][1] - ab[0][1]))
+        dx, dz = e[1][0] - e[0][0], e[1][1] - e[0][1]; n_ = math.hypot(dx, dz) or 1.0
+        dx, dz = dx / n_, dz / n_
+        proj_ = [(p[0] - cx_) * dx + (p[1] - cz_) * dz for p in P]
+        half = (max(proj_) - min(proj_)) / 2; mid_ = (max(proj_) + min(proj_)) / 2
+        if half < 5 or half > 70:
+            continue
+        for sg in (-1, 1):
+            x, z = cx_ + dx * (mid_ + sg * (half - 0.8)), cz_ + dz * (mid_ + sg * (half - 0.8))
+            add_prop(props, 14 if sp in ("basketball", "streetball") else 13, x, z, yaw_of(-sg * dx, -sg * dz), 1 if half > 30 else 0)
+        n_pitch += 1
+    else:
+        b_ = nearest_road(cx_, cz_, 40.0, 4)
+        yw = float(seed % 4 * 90)
+        if b_:
+            ax, az, _, _, _ = at(car[b_[1]], b_[2]); yw = yaw_of(ax - cx_, az - cz_)
+        add_prop(props, 15, cx_, cz_, yw, seed % 3)
+for n in tagged_nodes:
+    t = n["tags"]
+    x, z = nodes[n["id"]]
+    if t.get("amenity") in ("waste_disposal", "recycling"):
+        b_ = nearest_road(x, z, 40.0, 4)
+        yw = float(hsh(n["id"]) % 4 * 90)
+        if b_:
+            ax, az, _, _, _ = at(car[b_[1]], b_[2]); yw = yaw_of(ax - x, az - z)
+        add_prop(props, 15, x, z, yw, hsh(n["id"]) % 3)
+    elif t.get("barrier") == "block":
+        add_prop(props, 16, x, z, float(hsh(n["id"]) % 180), hsh(n["id"]) % 2)
+    elif t.get("barrier") == "bollard":
+        add_prop(props, 17, x, z, 0.0, 0)
+    elif t.get("leisure") == "playground":
+        add_prop(props, 9, x, z, float(hsh(n["id"]) % 360), 0)
+print("детских площадок:", n_play, "спортплощадок:", n_pitch)
+
 # Mapillary: то, чего нет на карте (только в локальный слой)
 MLY_SIGNS = {"regulatory--yield": 1, "regulatory--priority-road": 2, "regulatory--stop": 3, "regulatory--no-entry": 4,
              "regulatory--maximum-speed-limit": 5, "regulatory--no-stopping": 5, "regulatory--no-heavy-goods-vehicles": 5, "regulatory--no-parking": 5,
@@ -1006,7 +1212,7 @@ for v_, x, z in mly:
         n_ml += bool(add_prop(local_props, 5, sx, sz, yaw_of(side_f * tx, side_f * tz), var))
 print("предметов:", len(props), "из Mapillary:", n_ml)
 if os.environ.get("CITY_DEBUG"):
-    json.dump([props, local_props], open(os.environ["CITY_DEBUG"], "w"))
+    json.dump([props, local_props, [[b["type"], b["pts"][0][0], b["pts"][0][1], b["pts"][-1][0], b["pts"][-1][1]] for b in barriers]], open(os.environ["CITY_DEBUG"], "w"))
 
 # ---------- раскладка по квадратам ----------
 def chunk_of(x, z):
@@ -1125,7 +1331,7 @@ for c, d in chunks.items():
     wl_ = d["w"][:65535]
     out += struct.pack("<H", len(wl_))
     for w, pts in wl_:
-        out += struct.pack("<BBH", 0, min(255, int(round(w["h"] * 10))), len(pts))
+        out += struct.pack("<BBH", w["type"] | (w["var"] << 4), min(255, int(round(w["h"] * 10))), len(pts))
         for x, z, y in pts:
             out += struct.pack("<hhh", i16((x - ox) / U), i16((z - oz) / U), i16(y * 100))
     ll = d["l"][:65535]
@@ -1219,7 +1425,7 @@ if "home" not in spawns:
     spawns["home"] = [0.0, 0.0]
 
 meta = {
-    "version": 3, "name": "Черкассы", "origin": {"lat": LAT0, "lon": LON0}, "m_per_deg": {"lat": MLAT, "lon": MLON},
+    "version": 4, "name": "Черкассы", "origin": {"lat": LAT0, "lon": LON0}, "m_per_deg": {"lat": MLAT, "lon": MLON},
     "x0": X0, "z0": Z0, "nx": NX, "nz": NZ, "chunk": CHUNK, "cell": CELL, "sea_level_offset": YOFF,
     "spawns": spawns, "spawn_yaw": extra.get("spawn_yaw", 0), "exits": exits, "places": places,
     "counts": {"buildings": len(buildings), "roads": len(roads), "barriers": len(barriers), "pois": len(pois), "lines": len(lines), "decals": len(decals), "props": len(props)},

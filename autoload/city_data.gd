@@ -45,7 +45,7 @@ func load_all() -> void:
 	nx = geo.decode_u32(4)
 	nz = geo.decode_u32(8)
 	_geo_table = 12
-	if int(meta.get("version", 1)) < 3:
+	if int(meta.get("version", 1)) < 4:
 		push_error("Данные города старые: пересобери их (tools/build_city.py)")
 		return
 	if FileAccess.file_exists("res://city/local_extra.json"):
