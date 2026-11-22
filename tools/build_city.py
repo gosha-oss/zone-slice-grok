@@ -433,8 +433,9 @@ def classify(t, area):
         if lv >= 4 and kind in (0, 1): kind = 2
     return kind, h
 
+entrance_nodes = {n["id"]: n["tags"]["entrance"] for n in tagged_nodes if "entrance" in n["tags"]}
 buildings = []
-def add_building(p, t):
+def add_building(p, t, w=None):
     p = clean_ring(p)
     if len(p) < 3:
         return
@@ -447,10 +448,11 @@ def add_building(p, t):
     xs = [q[0] for q in p]; zs = [q[1] for q in p]
     ys = sample_tri(Hf, xs, zs)
     buildings.append({"kind": kind, "h": h, "pts": p, "base": float(np.mean(ys)), "lo": float(np.min(ys)),
-                      "cx": sum(xs) / len(xs), "cz": sum(zs) / len(zs), "tags": t})
+                      "cx": sum(xs) / len(xs), "cz": sum(zs) / len(zs), "tags": t,
+                      "ent": [(nodes[n][0], nodes[n][1], entrance_nodes[n]) for n in w["nodes"] if n in entrance_nodes] if w else []})
 for w in area_ways:
     if "building" in w["tags"] and w["tags"]["building"] != "no":
-        add_building(way_pts(w), w["tags"])
+        add_building(way_pts(w), w["tags"], w)
 for r in rels:
     t = r.get("tags", {})
     if "building" in t and t.get("type") == "multipolygon":
@@ -883,8 +885,22 @@ for t, ids in raw_barriers:
     hh = num(t.get("height")) if "height" in t else None
     for s0, s1 in intervals(L, cuts, 0.8):
         km_osm += add_fence(poly_sub(P, S, s0, s1), kind, var, hh if hh and 0.3 < hh < 6 else None)
-# частный сектор: заборы вдоль улиц, которых нет на карте — участками, у каждого свои ворота
-km_gen = 0.0; n_plots = 0
+# частный сектор: заборы вдоль улиц, которых нет на карте. Границы участков — посередине между соседними домами,
+# ворота — сбоку от дома, боковой забор уходит вглубь между домами. Вдоль одной стороны улицы — жёлтая газовая труба.
+from scipy.spatial import cKDTree
+FENCE_H[12] = 2.3
+houses = [b_ for b_ in buildings if b_["kind"] == 1]
+htree = cKDTree(np.array([[b_["cx"], b_["cz"]] for b_ in houses])) if houses else None
+gen_mask = np.zeros((FH_, FW_), dtype=bool)
+def mark(pts):
+    for (x0, z0), (x1, z1) in zip(pts, pts[1:]):
+        n = max(1, int(math.hypot(x1 - x0, z1 - z0) / 1.5))
+        for i in range(n + 1):
+            x = x0 + (x1 - x0) * i / n; z = z0 + (z1 - z0) * i / n
+            gen_mask[min(max(int((z - Z0) / FR), 0), FH_ - 1), min(max(int((x - X0) / FR), 0), FW_ - 1)] = True
+gate_spots = []
+km_gen = 0.0; n_plots = 0; n_by_house = 0; km_pipe = 0.0
+GATE_LEN = 4.4   # ворота 3.4 м + калитка 1 м
 for r in car:
     if r["cls"] > 2 or r["bridge"] or r["L"] < 20:
         continue
@@ -898,48 +914,101 @@ for r in car:
     far = np.ones(len(ss), dtype=bool)
     for c_, rad_ in r["kcut"]:
         far &= np.abs(ss - c_) > rad_ + 4.0
+    pipe_side = 1 if hsh(r["id"], "gas") % 2 else -1
     for side in (-1, 1):
         off = side * (hw + 3.4)
         PX = X + TZ * off; PZ = Z - TX * off
+        QX = X + TZ * (off - side * 0.35); QZ = Z - TX * (off - side * 0.35)
         def probe(m, extra):
             return fhit(m, X + TZ * (off + side * extra), Z - TX * (off + side * extra))
         ok = far & probe(house_near, 9.0) & ~probe(big_near, 6.0) & ~fhit(bld_mask, PX, PZ) & ~fhit(car_mask, PX, PZ) & ~fhit(bar_mask, PX, PZ)
         ok &= ~probe(foot_mask, 2.0) & ~probe(foot_mask, 4.5) & ~probe(car_mask, 3.0)
+        def piece(s0, s1, kd, vr, hh=None, ax=PX, az=PZ):
+            if s1 - s0 < 0.6:
+                return 0.0
+            q = np.concatenate([[s0], np.arange(s0, s1, 5.0)[1:], [s1]])
+            pts_ = list(zip((np.interp(q, ss, ax)).tolist(), (np.interp(q, ss, az)).tolist()))
+            if kd != 12:
+                mark(pts_)
+            return add_fence(pts_, kd, vr, hh)
         for a, b in runs(ok, ss, 9.0, 0.0):
-            s = a; k = 0
-            while b - s > 1.0:
-                seed = hsh(r["id"], side, int(s))
-                ln = 14.0 + seed % 13
-                if b - s - ln < 9.0:
-                    ln = b - s
-                e = s + ln
-                kind, var = private_kind(seed // 7)
-                def piece(s0, s1, kd, vr):
-                    if s1 - s0 < 0.6:
-                        return 0.0
-                    q = np.concatenate([[s0], np.arange(s0, s1, 5.0)[1:], [s1]])
-                    return add_fence(list(zip((np.interp(q, ss, PX)).tolist(), (np.interp(q, ss, PZ)).tolist())), kd, vr)
-                if ln >= 10.0:
-                    g0 = s + 1.5 + (seed // 1000) % max(1, int(ln - 7.5))
-                    km_gen += piece(s, g0, kind, var) + piece(g0, g0 + 4.4, 10, (seed // 50) % 5) + piece(g0 + 4.4, e, kind, var)
+            sel = (ss >= a - 0.01) & (ss <= b + 0.01)
+            RS = ss[sel]; RX = X[sel]; RZ = Z[sel]; RTX = TX[sel]; RTZ = TZ[sel]
+            ivs = []
+            if htree is not None and len(RS) > 1:
+                for hi in htree.query_ball_point([float(RX[len(RX) // 2]), float(RZ[len(RZ) // 2])], (b - a) / 2 + 45.0):
+                    V = np.array(houses[hi]["pts"])
+                    d2 = (V[:, 0:1] - RX[None, :]) ** 2 + (V[:, 1:2] - RZ[None, :]) ** 2
+                    j = d2.argmin(axis=1)
+                    lat = side * ((V[:, 0] - RX[j]) * RTZ[j] - (V[:, 1] - RZ[j]) * RTX[j])
+                    if lat.min() < hw + 2.4 or lat.min() > hw + 3.4 + 24.0:
+                        continue
+                    if (np.sqrt(d2[np.arange(len(V)), j]) > np.abs(lat) + 3.0).all():
+                        continue   # дом за концом участка улицы
+                    ivs.append((float(RS[j].min()), float(RS[j].max())))
+            ivs.sort()
+            merged = []
+            for h0, h1 in ivs:
+                if merged and h0 < merged[-1][1] - 1.0:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], h1))
                 else:
-                    km_gen += piece(s, e, kind, var)
-                # боковой забор между участками
-                if k > 0 or True:
-                    bx = float(np.interp(s, ss, PX)); bz = float(np.interp(s, ss, PZ))
-                    ox = float(np.interp(s, ss, TZ)) * side; oz = -float(np.interp(s, ss, TX)) * side
+                    merged.append((h0, h1))
+            plots = []
+            if merged:
+                bounds = [a] + [(merged[i][1] + merged[i + 1][0]) / 2 for i in range(len(merged) - 1)] + [b]
+                plots = [(bounds[i], bounds[i + 1], h0, h1) for i, (h0, h1) in enumerate(merged)]
+                n_by_house += len(plots)
+            else:
+                s = a
+                while b - s > 1.0:
+                    ln = 14.0 + hsh(r["id"], side, int(s)) % 13
+                    if b - s - ln < 9.0:
+                        ln = b - s
+                    plots.append((s, s + ln, s + ln * 0.35, s + ln * 0.75)); s += ln
+            for pi, (p0, p1, h0, h1) in enumerate(plots):
+                seed = hsh(r["id"], side, int(p0))
+                kind, var = private_kind(seed // 7)
+                ln = p1 - p0
+                gl, gr = h0 - p0, p1 - h1
+                gates = []
+                if ln >= GATE_LEN + 3.0:
+                    if max(gl, gr) >= GATE_LEN + 0.6:
+                        g0 = (p0 + (gl - GATE_LEN) / 2) if gl >= gr else (h1 + (gr - GATE_LEN) / 2)
+                    else:
+                        g0 = p0 + 0.8 if gl >= gr else p1 - GATE_LEN - 0.8
+                    g0 = min(max(g0, p0 + 0.3), p1 - GATE_LEN - 0.3)
+                    gates = [(g0, g0 + GATE_LEN)]
+                elif ln >= 3.2:
+                    gates = [(p0 + (ln - 1.2) / 2, p0 + (ln + 1.2) / 2)]
+                cur = p0
+                for g0, g1 in gates:
+                    km_gen += piece(cur, g0, kind, var) + piece(g0, g1, 10, (seed // 50) % 5)
+                    if side == pipe_side:
+                        km_pipe += piece(cur, g0, 12, 0, 2.3, QX, QZ) + piece(g0, g1, 12, 0, 3.5, QX, QZ)
+                    if g1 - g0 > 3 and seed % 10 < 3:
+                        gx = float(np.interp(g0 - 0.7, ss, PX)) - float(np.interp(g0, ss, TZ)) * side * 0.7
+                        gz = float(np.interp(g0 - 0.7, ss, PZ)) + float(np.interp(g0, ss, TX)) * side * 0.7
+                        gate_spots.append((gx, gz, float(seed % 360)))
+                    cur = g1
+                km_gen += piece(cur, p1, kind, var)
+                if side == pipe_side:
+                    km_pipe += piece(cur, p1, 12, 0, 2.3, QX, QZ)
+                # боковой забор между участками — от границы вглубь, между домами
+                if pi > 0:
+                    bx = float(np.interp(p0, ss, PX)); bz = float(np.interp(p0, ss, PZ))
+                    ox = float(np.interp(p0, ss, TZ)) * side; oz = -float(np.interp(p0, ss, TX)) * side
                     side_pts = [(bx, bz)]
-                    for d_ in range(3, 28, 3):
+                    for d_ in range(3, 37, 3):
                         qx, qz = bx + ox * d_, bz + oz * d_
-                        if fhit(bld_mask, [qx], [qz])[0] or fhit(car_mask, [qx], [qz])[0] or fhit(bar_mask, [qx], [qz])[0]:
+                        if fhit(bld_mask, [qx], [qz])[0] or fhit(car_mask, [qx], [qz])[0] or fhit(bar_mask, [qx], [qz])[0] or (d_ > 3 and fhit(gen_mask, [qx], [qz])[0]):
                             break
                         side_pts.append((qx, qz))
                     if len(side_pts) >= 3:
                         sk, sv = private_kind(seed // 13)
                         km_gen += add_fence(side_pts, sk if sk != 5 else 4, sv)
-                n_plots += 1; k += 1
-                s = e
-print("заборов: с карты %.0f км, достроено в частном секторе %.0f км, участков %d, ворот на карте %d" % (km_osm / 1000, km_gen / 1000, n_plots, len(gate_nodes)))
+                        mark(side_pts)
+                n_plots += 1
+print("заборов: с карты %.0f км, достроено в частном секторе %.0f км, участков %d (по домам %d), ворот на карте %d, газовой трубы %.0f км" % (km_osm / 1000, km_gen / 1000, n_plots, n_by_house, len(gate_nodes), km_pipe / 1000))
 
 # ---------- столбы, светофоры, знаки, остановки ----------
 # prop = (тип, x, z, y, yaw°, вид). yaw — куда «смотрит» предмет.
@@ -1168,6 +1237,267 @@ for n in tagged_nodes:
     elif t.get("leisure") == "playground":
         add_prop(props, 9, x, z, float(hsh(n["id"]) % 360), 0)
 print("детских площадок:", n_play, "спортплощадок:", n_pitch)
+
+# --- подъезды, двери, гаражные ворота, лавки и урны у подъездов ---
+# типы: 20 дерево · 21 подъезд · 22 дверь частного дома · 23 вход в магазин/учреждение · 24 гаражные ворота
+#       25 клумба из покрышек · 26 сушилка для белья
+def _d_svc(d):
+    for r in car:
+        if r["cls"] >= 3: d.line(fpx(r["pts"]), fill=1, width=max(1, int(round(r["w"] / FR))))
+def _d_main(d):
+    for r in car:
+        if r["cls"] <= 2: d.line(fpx(r["pts"]), fill=1, width=max(1, int(round(r["w"] / FR))))
+svc_mask = mask_of(_d_svc); main_mask = mask_of(_d_main)
+def add_forced(t_, x, z, yaw, var=0):
+    """предмет у самой стены: сетка домов тут не годится, проверяем только границы города"""
+    if not (X0 + 2 < x < -X0 - 2 and Z0 + 2 < z < -Z0 - 2):
+        return False
+    props.append((t_, x, z, float(sample_tri(Hf, [x], [z])[0]), yaw, var))
+    pgrid[(int(x // 16), int(z // 16))].append((t_, x, z))
+    return True
+def obb(P):
+    e = max(zip(P, P[1:] + P[:1]), key=lambda ab: (ab[1][0] - ab[0][0]) ** 2 + (ab[1][1] - ab[0][1]) ** 2)
+    ux, uz = e[1][0] - e[0][0], e[1][1] - e[0][1]; n_ = math.hypot(ux, uz) or 1.0
+    ux, uz = ux / n_, uz / n_
+    vx, vz = uz, -ux
+    cx_ = sum(p[0] for p in P) / len(P); cz_ = sum(p[1] for p in P) / len(P)
+    U = [(p[0] - cx_) * ux + (p[1] - cz_) * uz for p in P]; V = [(p[0] - cx_) * vx + (p[1] - cz_) * vz for p in P]
+    return (cx_, cz_), (ux, uz), (vx, vz), min(U), max(U), min(V), max(V)
+def wall_point(P, c, a_ax, b_ax, aa, sgn):
+    """точка стены: на линии a = aa самая дальняя в сторону sgn по оси b"""
+    best = None
+    for p, q in zip(P, P[1:] + P[:1]):
+        pa = (p[0] - c[0]) * a_ax[0] + (p[1] - c[1]) * a_ax[1] - aa
+        qa = (q[0] - c[0]) * a_ax[0] + (q[1] - c[1]) * a_ax[1] - aa
+        if (pa > 0) != (qa > 0):
+            t = pa / (pa - qa)
+            x = p[0] + (q[0] - p[0]) * t; z = p[1] + (q[1] - p[1]) * t
+            bb = ((x - c[0]) * b_ax[0] + (z - c[1]) * b_ax[1]) * sgn
+            if best is None or bb > best[0]:
+                best = (bb, x, z)
+    return (best[1], best[2]) if best else None
+def yard_score(c, u, v, u0, u1, v0, v1, sgn):
+    sc = 0
+    for frac in (0.25, 0.5, 0.75):
+        uu = u0 + (u1 - u0) * frac; vv = v1 if sgn > 0 else v0
+        bx = c[0] + u[0] * uu + v[0] * vv; bz = c[1] + u[1] * uu + v[1] * vv
+        foot = False
+        for d_ in (3, 6, 9, 12, 16, 20):
+            x = bx + v[0] * sgn * d_; z = bz + v[1] * sgn * d_
+            if fhit(main_mask, [x], [z])[0]: sc -= 3; break
+            if fhit(svc_mask, [x], [z])[0]: sc += 2; break
+            if fhit(bld_mask, [x], [z])[0]: break
+            if not foot and fhit(foot_mask, [x], [z])[0]: sc += 1; foot = True
+    return sc
+def edge_normal(P, x, z):
+    """наружная нормаль ближайшей к точке стены"""
+    best = None
+    for p, q in zip(P, P[1:] + P[:1]):
+        dx, dz = q[0] - p[0], q[1] - p[1]; L2 = dx * dx + dz * dz
+        if L2 < 0.01: continue
+        t = min(1.0, max(0.0, ((x - p[0]) * dx + (z - p[1]) * dz) / L2))
+        d_ = (p[0] + dx * t - x) ** 2 + (p[1] + dz * t - z) ** 2
+        if best is None or d_ < best[0]:
+            L = math.sqrt(L2); best = (d_, dz / L, -dx / L)
+    if not best: return None
+    nx_, nz_ = best[1], best[2]
+    if pt_in(P, x + nx_ * 0.7, z + nz_ * 0.7):
+        nx_, nz_ = -nx_, -nz_
+    return nx_, nz_
+def free_spot(x, z):
+    return not (fhit(bld_mask, [x], [z])[0] or fhit(car_mask, [x], [z])[0])
+n_ent = n_door = n_pub = n_gar = 0
+for b in buildings:
+    P = b["pts"]; k_ = b["kind"]; t = b["tags"]
+    seed = hsh(int(b["cx"] * 10), int(b["cz"] * 10))
+    if k_ == 2:
+        spots = []
+        for ex, ez, et in b["ent"]:
+            if et in ("staircase", "yes", "main", "home", "entrance", "secondary"):
+                nrm_ = edge_normal(P, ex, ez)
+                if nrm_: spots.append((ex, ez, nrm_[0], nrm_[1], -nrm_[1], nrm_[0]))
+        c, u, v, u0, u1, v0, v1 = obb(P)
+        sp, sm = yard_score(c, u, v, u0, u1, v0, v1, 1), yard_score(c, u, v, u0, u1, v0, v1, -1)
+        if sp == sm:
+            b_ = nearest_road(c[0], c[1], 80.0, 2)
+            sgn = 1
+            if b_:
+                ax, az, _, _, _ = at(car[b_[1]], b_[2])
+                sgn = -1 if (ax - c[0]) * v[0] + (az - c[1]) * v[1] > 0 else 1
+        else:
+            sgn = 1 if sp > sm else -1
+        if not spots:
+            ln = u1 - u0
+            n_ = max(1, int(round(ln / (24.0 if b["h"] > 20 else 18.0))))
+            for i in range(n_):
+                wp = wall_point(P, c, u, v, u0 + (i + 0.5) * ln / n_, sgn)
+                if wp: spots.append((wp[0], wp[1], v[0] * sgn, v[1] * sgn, u[0], u[1]))
+        for i, (x, z, nx_, nz_, ux_, uz_) in enumerate(spots):
+            if add_forced(21, x + nx_ * 0.02, z + nz_ * 0.02, yaw_of(nx_, nz_), seed % 3):
+                n_ent += 1
+                h_ = hsh(seed, i)
+                if free_spot(x + ux_ * 2.6 + nx_ * 1.7, z + uz_ * 2.6 + nz_ * 1.7):
+                    add_forced(7, x + ux_ * 2.6 + nx_ * 1.7, z + uz_ * 2.6 + nz_ * 1.7, yaw_of(nx_, nz_), 0)
+                add_forced(8, x + ux_ * 1.25 + nx_ * 0.55, z + uz_ * 1.25 + nz_ * 0.55, 0.0, 0)
+                if h_ % 100 < 35 and free_spot(x - ux_ * 2.8 + nx_ * 1.6, z - uz_ * 2.8 + nz_ * 1.6):
+                    add_forced(25, x - ux_ * 2.8 + nx_ * 1.6, z - uz_ * 2.8 + nz_ * 1.6, float(h_ % 360), h_ % 3)
+        if b["h"] <= 17.5:
+            vv = (v1 if sgn > 0 else v0) + sgn * 9.0
+            x = c[0] + u[0] * (u0 + u1) / 2 + v[0] * vv; z = c[1] + u[1] * (u0 + u1) / 2 + v[1] * vv
+            if free_spot(x, z) and not fhit(foot_mask, [x], [z])[0] and not p_near(x, z, 5.0):
+                add_prop(props, 26, x, z, yaw_of(u[0], u[1]), 0)
+    elif k_ == 1:
+        b_ = nearest_road(b["cx"], b["cz"], 45.0, 3)
+        if not b_:
+            continue
+        ax, az, _, _, _ = at(car[b_[1]], b_[2])
+        dx, dz = ax - b["cx"], az - b["cz"]; dn = math.hypot(dx, dz) or 1.0
+        best = None
+        for p, q in zip(P, P[1:] + P[:1]):
+            ex, ez = q[0] - p[0], q[1] - p[1]; L = math.hypot(ex, ez)
+            if L < 2.2: continue
+            nx_, nz_ = ez / L, -ex / L
+            sc = (nx_ * dx + nz_ * dz) / dn
+            if best is None or sc > best[0]:
+                best = (sc, p, q, nx_, nz_)
+        if best:
+            sc, p, q, nx_, nz_ = best
+            fr = 0.3 + (seed % 40) / 100
+            x = p[0] + (q[0] - p[0]) * fr; z = p[1] + (q[1] - p[1]) * fr
+            if pt_in(P, x + nx_ * 0.7, z + nz_ * 0.7):
+                continue
+            n_door += bool(add_forced(22, x + nx_ * 0.02, z + nz_ * 0.02, yaw_of(nx_, nz_), seed % 4))
+    elif k_ in (0, 5, 6, 7):
+        spots = []
+        for ex, ez, et in b["ent"][:3]:
+            if et in ("main", "yes", "shop"):
+                nrm_ = edge_normal(P, ex, ez)
+                if nrm_: spots.append((ex, ez, nrm_[0], nrm_[1]))
+        if not spots:
+            b_ = nearest_road(b["cx"], b["cz"], 80.0, 2) or nearest_road(b["cx"], b["cz"], 50.0, 3)
+            if not b_:
+                continue
+            ax, az, _, _, _ = at(car[b_[1]], b_[2])
+            c, u, v, u0, u1, v0, v1 = obb(P)
+            dx, dz = ax - c[0], az - c[1]
+            cands = [(dx * v[0] + dz * v[1], u, v, (u0 + u1) / 2, 1), (-(dx * v[0] + dz * v[1]), u, v, (u0 + u1) / 2, -1),
+                     (dx * u[0] + dz * u[1], v, u, (v0 + v1) / 2, 1), (-(dx * u[0] + dz * u[1]), v, u, (v0 + v1) / 2, -1)]
+            _, a_ax, b_ax, aa, sgn = max(cands, key=lambda q_: q_[0])
+            wp = wall_point(P, c, a_ax, b_ax, aa, sgn)
+            if wp: spots.append((wp[0], wp[1], b_ax[0] * sgn, b_ax[1] * sgn))
+        for x, z, nx_, nz_ in spots:
+            n_pub += bool(add_forced(23, x + nx_ * 0.02, z + nz_ * 0.02, yaw_of(nx_, nz_), seed % 4))
+    elif k_ == 4 and t.get("building") in ("garage", "garages"):
+        b_ = nearest_road(b["cx"], b["cz"], 30.0, 3)
+        if not b_:
+            continue
+        ax, az, _, _, _ = at(car[b_[1]], b_[2])
+        c, u, v, u0, u1, v0, v1 = obb(P)
+        dx, dz = ax - c[0], az - c[1]
+        cands = [(dx * v[0] + dz * v[1], u, v, u0, u1, 1), (-(dx * v[0] + dz * v[1]), u, v, u0, u1, -1),
+                 (dx * u[0] + dz * u[1], v, u, v0, v1, 1), (-(dx * u[0] + dz * u[1]), v, u, v0, v1, -1)]
+        _, a_ax, b_ax, a0, a1, sgn = max(cands, key=lambda q_: q_[0])
+        wd = a1 - a0
+        n_ = 1 if wd < 5.2 else int(wd / 3.6)
+        for i in range(n_):
+            wp = wall_point(P, c, a_ax, b_ax, a0 + (i + 0.5) * wd / n_, sgn)
+            if wp:
+                n_gar += bool(add_forced(24, wp[0] + b_ax[0] * sgn * 0.03, wp[1] + b_ax[1] * sgn * 0.03, yaw_of(b_ax[0] * sgn, b_ax[1] * sgn), hsh(seed, i) % 5))
+print("подъездов:", n_ent, "дверей частных домов:", n_door, "входов в магазины и учреждения:", n_pub, "гаражных ворот:", n_gar)
+for gx, gz, yw in gate_spots:
+    add_prop(props, 8, gx, gz, yw, 1)
+
+# --- деревья: все с карты, плюс вдоль загородных дорог ---
+def tree_var(seed, x, z, needle=False, genus=""):
+    g = genus.lower()
+    if "picea" in g or "thuja" in g or "abies" in g: return 6
+    if needle or "pinus" in g: return 2 if seed % 4 else 6
+    if "aesculus" in g or "aésculus" in g or "platanus" in g or "juglans" in g: return 3
+    if "betula" in g: return 4
+    if "prunus" in g or "malus" in g or "morus" in g or "pyrus" in g: return 5
+    if "populus" in g: return 1
+    if "tilia" in g or "acer" in g: return 0
+    h = seed % 100
+    if h < 45 and fhit(house_near, [x], [z])[0] and not fhit(big_near, [x], [z])[0]: return 5
+    return 0 if h < 55 else 3 if h < 70 else 1 if h < 82 else 4 if h < 90 else 5
+def add_tree(x, z, var, seed):
+    if fhit(car_mask, [x], [z])[0] or fhit(foot_mask, [x], [z])[0]:
+        return False
+    return add_prop(props, 20, x, z, float(seed % 360), var)
+n_tree = n_row = n_out = 0
+for n in tagged_nodes:
+    t = n["tags"]
+    if t.get("natural") == "tree":
+        x, z = nodes[n["id"]]
+        sd = hsh(n["id"])
+        n_tree += bool(add_tree(x, z, tree_var(sd, x, z, t.get("leaf_type") == "needleleaved", t.get("genus", t.get("species", ""))), sd))
+for w in ways.values():
+    t = w.get("tags", {})
+    if t.get("natural") == "tree_row":
+        P = way_pts(w)
+        if len(P) < 2: continue
+        sd = hsh(w["nodes"][0])
+        mid = P[len(P) // 2]
+        g = t.get("genus", t.get("species", ""))
+        if g or t.get("leaf_type") in ("needleleaved", "conifer"):
+            var = tree_var(sd, mid[0], mid[1], t.get("leaf_type") in ("needleleaved", "conifer"), g)
+        else:
+            var = (0, 0, 0, 0, 1, 1, 1, 3, 3, 4)[sd % 10]
+        for k, (x, z) in enumerate(resample(P, 7.5)):
+            j = hsh(sd, k)
+            n_row += bool(add_tree(x + (j % 13 - 6) / 10.0, z + (j // 13 % 13 - 6) / 10.0, var, j))
+for r in car:
+    if r["ref"] not in ("trunk", "primary", "secondary", "tertiary") or r["bridge"] or r["L"] < 30:
+        continue
+    ss = np.arange(4.0, r["L"] - 4.0, 9.0)
+    X = np.interp(ss, r["S"], r["X"]); Z = np.interp(ss, r["S"], r["Z"])
+    TX = np.interp(ss, r["S"], r["TX"]); TZ = np.interp(ss, r["S"], r["TZ"])
+    for side in (-1, 1):
+        base_off = r["w"] / 2 + 5.5 + (hsh(r["id"], side) % 20) / 10.0
+        row_var = 1 if hsh(r["id"], side, "sp") % 3 == 0 else 0
+        for k in range(len(ss)):
+            nn_ = math.hypot(TX[k], TZ[k]) or 1.0
+            for depth in (0.0, 6.5):
+                off = side * (base_off + depth)
+                x = float(X[k] + TZ[k] / nn_ * off); z = float(Z[k] - TX[k] / nn_ * off)
+                if not (X0 + 4 < x < -X0 - 4 and Z0 + 4 < z < -Z0 - 4):
+                    continue
+                if urban[min(max(int((z - Z0) / CELL), 0), GH - 1), min(max(int((x - X0) / CELL), 0), GW - 1)]:
+                    continue
+                cv_ = cover_at(x, z)
+                sd = hsh(r["id"], side, k, int(depth))
+                if cv_ == 3:
+                    continue
+                if cv_ == 2:
+                    var = 2 if sd % 100 < 70 else (4 if sd % 100 < 85 else 0)
+                else:
+                    if depth > 0 or hsh(r["id"], side, k // 12) % 100 < 35:
+                        continue
+                    var = row_var
+                x += (sd % 17 - 8) / 8.0; z += (sd // 17 % 17 - 8) / 8.0
+                if p_near(x, z, 4.0, (20,)):
+                    continue
+                n_out += bool(add_tree(x, z, var, sd))
+print("деревьев: отдельных %d, в аллеях %d, вдоль загородных дорог %d" % (n_tree, n_row, n_out))
+
+# спортплощадки: белая линия по контуру, «коробка» из сетки вокруг дворовых
+for w in area_ways:
+    t = w["tags"]
+    if t.get("leisure") == "pitch":
+        P = way_pts(w)
+        if len(P) < 4: continue
+        area = abs(poly_area2(P[:-1])) / 2
+        if not 80 < area < 9000: continue
+        ys = sample_tri(Hf, [q[0] for q in P], [q[1] for q in P]) + 0.06
+        lines.append({"type": 0, "wcm": 8, "pts": P, "y": ys})
+        if t.get("sport") in ("soccer", "multi", "futsal", "basketball", "streetball") and area < 2500 and not fhit(bar_mask, [P[0][0]], [P[0][1]])[0]:
+            S_ = np.concatenate([[0.0], np.cumsum([math.hypot(b_[0] - a_[0], b_[1] - a_[1]) for a_, b_ in zip(P, P[1:])])])
+            if S_[-1] > 12:
+                add_fence(poly_sub(P, S_, 2.6, float(S_[-1])), 4, 0, 3.0)
+    elif t.get("leisure") == "fitness_station":
+        P = way_pts(w)[:-1]
+        if len(P) >= 3:
+            add_prop(props, 12, sum(q[0] for q in P) / len(P), sum(q[1] for q in P) / len(P), float(hsh(w["nodes"][0]) % 180), 0)
 
 # Mapillary: то, чего нет на карте (только в локальный слой)
 MLY_SIGNS = {"regulatory--yield": 1, "regulatory--priority-road": 2, "regulatory--stop": 3, "regulatory--no-entry": 4,
@@ -1425,7 +1755,7 @@ if "home" not in spawns:
     spawns["home"] = [0.0, 0.0]
 
 meta = {
-    "version": 4, "name": "Черкассы", "origin": {"lat": LAT0, "lon": LON0}, "m_per_deg": {"lat": MLAT, "lon": MLON},
+    "version": 5, "name": "Черкассы", "origin": {"lat": LAT0, "lon": LON0}, "m_per_deg": {"lat": MLAT, "lon": MLON},
     "x0": X0, "z0": Z0, "nx": NX, "nz": NZ, "chunk": CHUNK, "cell": CELL, "sea_level_offset": YOFF,
     "spawns": spawns, "spawn_yaw": extra.get("spawn_yaw", 0), "exits": exits, "places": places,
     "counts": {"buildings": len(buildings), "roads": len(roads), "barriers": len(barriers), "pois": len(pois), "lines": len(lines), "decals": len(decals), "props": len(props)},

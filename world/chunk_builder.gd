@@ -715,8 +715,12 @@ func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
 			_pbox(p + up * 0.88 - f * 0.22, r * 0.85, up * 0.16, f * 0.025, wood)
 			for s: float in [-1.0, 1.0]:
 				_pbox(p + up * 0.36 + r * 0.7 * s, r * 0.03, up * 0.36, f * 0.2, METAL_DARK * 1.5)
-		8:  # урна
-			_pbox(p + up * 0.55, r * 0.17, up * 0.40, f * 0.17, Color(0.16, 0.26, 0.18))
+		8:  # урна; вид 1 — зелёный бак на колёсах у ворот
+			if pvar == 1:
+				_pbox(p + up * 0.70, r * 0.27, up * 0.50, f * 0.30, Color(0.14, 0.36, 0.20))
+				_pbox(p + up * 1.23, r * 0.29, up * 0.03, f * 0.33, Color(0.11, 0.28, 0.16))
+			else:
+				_pbox(p + up * 0.55, r * 0.17, up * 0.40, f * 0.17, Color(0.16, 0.26, 0.18))
 		9:  # качели
 			var pc: Color = [Color(0.70, 0.16, 0.12), Color(0.16, 0.36, 0.62), Color(0.80, 0.62, 0.10)][pvar % 3]
 			for s: float in [-1.0, 1.0]:
@@ -770,6 +774,61 @@ func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
 			_pbox(p + up * 0.42, r * 0.9, up * 0.30, f * 0.30, Color(0.60, 0.60, 0.58) if pvar == 0 else Color(0.72, 0.70, 0.66))
 		17:  # столбик
 			_ppole(p, p + up * 0.95, 0.07, 0.06, Color(0.30, 0.31, 0.32), 4)
+		20:  # дерево
+			_tree(p, pvar, yaw)
+		21:  # подъезд многоэтажки: дверь, крыльцо, козырёк, боковая стенка, лампа
+			var dc: Color = [Color(0.30, 0.31, 0.33), Color(0.36, 0.22, 0.15), Color(0.16, 0.30, 0.22)][pvar % 3]
+			var conc := Color(0.62, 0.62, 0.60)
+			_pbox(p + up * 1.22 + f * 0.03, r * 0.55, up * 1.05, f * 0.04, dc)
+			_pbox(p + up * 1.22 + f * 0.02, r * 0.68, up * 1.18, f * 0.02, conc * 0.8)
+			_pbox(p + up * 0.14 + f * 0.8, r * 1.35, up * 0.14, f * 0.8, conc)
+			_pbox(p + up * 2.62 + f * 0.85, r * 1.5, up * 0.07, f * 0.85, conc * 0.95)
+			_pbox(p + up * 1.4 - r * 1.38 + f * 0.8, r * 0.07, up * 1.2, f * 0.8, conc * 0.9)
+			_ppole(p + r * 1.36 + f * 1.5 + up * 0.25, p + r * 1.36 + f * 1.5 + up * 2.56, 0.045, 0.045, METAL_DARK * 1.6, 4)
+			_glow_quad(p + up * 2.46 + f * 0.5, r * 0.12, f * 0.12, Color(1.0, 0.82, 0.55))
+			_glow_pool(p + f * 1.2 + up * 0.36, 3.2, Color(1.0, 0.80, 0.52) * 0.30)
+		22:  # дверь частного дома с крылечком
+			_det = true
+			var dc: Color = [Color(0.36, 0.22, 0.15), Color(0.80, 0.80, 0.77), Color(0.22, 0.26, 0.34), Color(0.20, 0.34, 0.24)][pvar % 4]
+			_pbox(p + up * 1.2 + f * 0.03, r * 0.45, up * 1.0, f * 0.03, dc)
+			_pbox(p + up * 0.2 + f * 0.5, r * 0.75, up * 0.15, f * 0.5, Color(0.58, 0.58, 0.56))
+			_pq(p + up * 2.45 - r * 0.85, p + up * 2.45 + r * 0.85, p + up * 2.2 + r * 0.85 + f * 0.9, p + up * 2.2 - r * 0.85 + f * 0.9, dc * 0.7, up)
+			_det = false
+		23:  # вход в магазин или учреждение: стеклянные двери, ступени, козырёк
+			var cc: Color = [Color(0.20, 0.30, 0.52), Color(0.50, 0.14, 0.13), Color(0.16, 0.38, 0.24), Color(0.30, 0.31, 0.33)][pvar % 4]
+			var conc := Color(0.64, 0.64, 0.62)
+			_pbox(p + up * 1.3 + f * 0.03, r * 0.95, up * 1.15, f * 0.04, Color(0.16, 0.22, 0.28))
+			_pbox(p + up * 1.3 + f * 0.05, r * 0.03, up * 1.15, f * 0.04, Color(0.75, 0.76, 0.78))
+			_pbox(p + up * 1.3 + f * 0.02, r * 1.1, up * 1.3, f * 0.02, Color(0.75, 0.76, 0.78))
+			_pbox(p + up * 0.22 + f * 0.9, r * 1.7, up * 0.14, f * 0.9, conc)
+			_pbox(p + up * 0.07 + f * 1.05, r * 2.0, up * 0.10, f * 1.25, conc * 0.93)
+			_pbox(p + up * 2.95 + f * 0.9, r * 1.9, up * 0.09, f * 0.95, cc)
+		24:  # гаражные ворота
+			_det = true
+			var gc_: Color = [Color(0.40, 0.25, 0.18), Color(0.20, 0.34, 0.24), Color(0.42, 0.43, 0.44), Color(0.36, 0.24, 0.17), Color(0.22, 0.30, 0.42)][pvar % 5]
+			_pq(p + f * 0.03 - r * 1.2 + up * 0.15, p + f * 0.03 + r * 1.2 + up * 0.15, p + f * 0.03 + r * 1.2 + up * 2.15, p + f * 0.03 - r * 1.2 + up * 2.15, gc_, f)
+			_pq(p + f * 0.05 - r * 0.02 + up * 0.15, p + f * 0.05 + r * 0.02 + up * 0.15, p + f * 0.05 + r * 0.02 + up * 2.15, p + f * 0.05 - r * 0.02 + up * 2.15, gc_ * 0.55, f)
+			_pq(p + f * 0.05 - r * 1.26 + up * 2.15, p + f * 0.05 + r * 1.26 + up * 2.15, p + f * 0.05 + r * 1.26 + up * 2.27, p + f * 0.05 - r * 1.26 + up * 2.27, gc_ * 0.6, f)
+			_det = false
+		25:  # клумба из покрышек
+			_det = true
+			var tyre := Color(0.07, 0.07, 0.08)
+			var paint: Color = [tyre, Color(0.80, 0.80, 0.78), Color(0.20, 0.36, 0.60)][pvar % 3]
+			for k in 3:
+				var o := r * (k - 1.0) * 0.75 + f * (0.25 if k == 1 else 0.0)
+				_pbox(p + o + up * 0.25, r * 0.33, up * 0.10, f * 0.33, paint)
+				_pq(p + o + up * 0.36 - r * 0.24 - f * 0.24, p + o + up * 0.36 + r * 0.24 - f * 0.24, p + o + up * 0.36 + r * 0.24 + f * 0.24, p + o + up * 0.36 - r * 0.24 + f * 0.24, Color(0.24, 0.42, 0.20) if k != 1 else Color(0.62, 0.30, 0.36), up)
+			_det = false
+		26:  # сушилка для белья: два Т-образных столба и верёвки
+			var pc := Color(0.30, 0.42, 0.50)
+			for s: float in [-1.0, 1.0]:
+				_ppole(p + r * 2.2 * s, p + r * 2.2 * s + up * 2.1, 0.04, 0.04, pc, 4)
+				_ppole(p + r * 2.2 * s + up * 2.08 - f * 0.7, p + r * 2.2 * s + up * 2.08 + f * 0.7, 0.03, 0.03, pc, 3)
+			_det = true
+			for k in 3:
+				var o := f * (k - 1.0) * 0.6 + up * 2.08
+				_pq(p - r * 2.2 + o, p + r * 2.2 + o, p + r * 2.2 + o + up * 0.02, p - r * 2.2 + o + up * 0.02, Color(0.80, 0.80, 0.78), f)
+			_det = false
 
 # ---------- свет ----------
 func _glow_quad(c: Vector3, a: Vector3, b: Vector3, color: Color) -> void:
@@ -779,6 +838,16 @@ func _glow_quad(c: Vector3, a: Vector3, b: Vector3, color: Color) -> void:
 		gc.push_back(color)
 	gi.push_back(base); gi.push_back(base + 1); gi.push_back(base + 2)
 	gi.push_back(base); gi.push_back(base + 2); gi.push_back(base + 3)
+
+## Только пятно света на земле (лампа у подъезда).
+func _glow_pool(g: Vector3, radius: float, c: Color) -> void:
+	var base := gv.size()
+	gv.push_back(g); gc.push_back(c)
+	for k in 8:
+		var an := TAU * k / 8.0
+		gv.push_back(g + Vector3(cos(an) * radius, 0.0, sin(an) * radius)); gc.push_back(Color(0, 0, 0))
+	for k in 8:
+		gi.push_back(base); gi.push_back(base + 1 + k); gi.push_back(base + 1 + (k + 1) % 8)
 
 ## Лампа: яркая точка и пятно света на земле. Часть ламп тёплые (натриевые), часть белые.
 func _lamp_glow(head: Vector3, ground_y: float, radius: float, power: float, seed_i: int) -> void:
@@ -968,7 +1037,96 @@ func _fence(pts: PackedVector3Array, ftype: int, fvar: int, h: float) -> void:
 			_strip(a, b, h - 0.25, h - 0.19, c * 1.5)
 			_strip(a, b, 0.35, 0.41, c * 1.5)
 			_det = false
+		12:  # жёлтая газовая труба на опорах; над воротами поднимается аркой
+			_det = true
+			var c := Color(0.82, 0.66, 0.10)
+			var uph := Vector3(0.0, h, 0.0)
+			for k in range(1, pts.size()):
+				_ppole(pts[k - 1] + uph, pts[k] + uph, 0.035, 0.035, c, 3)
+			if h > 3.0:
+				_ppole(pts[0] + Vector3(0.0, 2.3, 0.0), pts[0] + uph, 0.035, 0.035, c, 3)
+				_ppole(pts[pts.size() - 1] + Vector3(0.0, 2.3, 0.0), pts[pts.size() - 1] + uph, 0.035, 0.035, c, 3)
+			else:
+				for q in _stations(pts, 6.0):
+					_ppole(q - Vector3(0.0, 0.2, 0.0), q + uph, 0.025, 0.025, Color(0.40, 0.40, 0.40), 3)
+			_det = false
 		_:  # стена, подпорная стена
 			var c := BARRIER_COLOR * shade
 			for k in range(1, pts.size()):
 				_panel(pts[k - 1], pts[k], -0.5, h, c)
+
+# ---------- деревья (пока простыми формами) ----------
+## Крона-«капля»: верхушка, два кольца и низ. Нормали наружу, верх светлее.
+func _crown(c: Vector3, rx: float, ry: float, color: Color, rot: float) -> void:
+	var base := v.size()
+	var rings: Array = [[0.0, 1.0], [0.72, 0.50], [1.0, -0.12], [0.55, -0.80]]
+	var shades: Array[float] = [1.18, 1.06, 0.92, 0.72]
+	var seg := 5
+	v.push_back(c + Vector3(0.0, ry, 0.0)); nrm.push_back(Vector3.UP); col.push_back(color * shades[0])
+	for ri in range(1, 4):
+		for k in seg:
+			var an := rot + TAU * (k + 0.5 * (ri % 2)) / seg
+			var d := Vector3(cos(an), 0.0, sin(an))
+			var rr: float = rings[ri][0]
+			var yy: float = rings[ri][1]
+			v.push_back(c + d * rx * rr + Vector3(0.0, ry * yy, 0.0))
+			nrm.push_back((d * rr + Vector3(0.0, yy * 0.8, 0.0)).normalized())
+			col.push_back(color * shades[ri])
+	for k in seg:
+		idx.push_back(base); idx.push_back(base + 1 + (k + 1) % seg); idx.push_back(base + 1 + k)
+	for ri in range(1, 3):
+		var a0 := base + 1 + (ri - 1) * seg
+		var b0 := a0 + seg
+		for k in seg:
+			var k2 := (k + 1) % seg
+			var kb := k if ri % 2 == 1 else k2
+			var kb2 := (kb + seg - 1) % seg if ri % 2 == 0 else (k + 1) % seg
+			# две полосы треугольников между соседними кольцами (кольца сдвинуты на полшага)
+			if ri % 2 == 1:
+				idx.push_back(a0 + k); idx.push_back(a0 + k2); idx.push_back(b0 + k2)
+				idx.push_back(a0 + k); idx.push_back(b0 + k2); idx.push_back(b0 + k)
+			else:
+				idx.push_back(a0 + k); idx.push_back(a0 + k2); idx.push_back(b0 + k)
+				idx.push_back(a0 + k2); idx.push_back(b0 + k2); idx.push_back(b0 + k)
+	# низ кроны
+	var l0 := base + 1 + 2 * seg
+	for k in range(1, seg - 1):
+		idx.push_back(l0); idx.push_back(l0 + k); idx.push_back(l0 + k + 1)
+
+func _tree(p: Vector3, species: int, yaw: float) -> void:
+	var hsh_i := int(absf(p.x) * 31.0 + absf(p.z) * 17.0 + yaw)
+	var sc := 0.82 + 0.40 * float(hsh_i % 16) / 15.0
+	var tint := 0.88 + 0.24 * float((hsh_i / 16) % 8) / 7.0
+	var rot := deg_to_rad(yaw)
+	var up := Vector3.UP
+	var bark := Color(0.26, 0.20, 0.15)
+	match species:
+		1:  # пирамидальный тополь
+			_ppole(p, p + up * 3.0 * sc, 0.20, 0.14, bark, 3)
+			_crown(p + up * 9.5 * sc, 1.5 * sc, 7.5 * sc, Color(0.20, 0.36, 0.17) * tint, rot)
+		2:  # сосна
+			_ppole(p, p + up * 10.0 * sc, 0.19, 0.11, Color(0.45, 0.27, 0.16), 3)
+			_crown(p + up * 11.0 * sc, 2.9 * sc, 2.6 * sc, Color(0.12, 0.27, 0.17) * tint, rot)
+		3:  # каштан, старое большое дерево
+			_ppole(p, p + up * 3.4 * sc, 0.32, 0.22, bark, 4)
+			_crown(p + up * 7.2 * sc, 4.4 * sc, 4.4 * sc, Color(0.17, 0.33, 0.14) * tint, rot)
+		4:  # берёза
+			_ppole(p, p + up * 5.5 * sc, 0.12, 0.08, Color(0.82, 0.82, 0.78), 3)
+			_crown(p + up * 8.2 * sc, 2.2 * sc, 3.6 * sc, Color(0.30, 0.46, 0.20) * tint, rot)
+		5:  # плодовое, невысокое
+			_ppole(p, p + up * 1.7 * sc, 0.10, 0.08, bark, 3)
+			_crown(p + up * 3.3 * sc, 2.0 * sc, 1.9 * sc, Color(0.24, 0.42, 0.18) * tint, rot)
+		6:  # ель
+			_ppole(p, p + up * 1.4 * sc, 0.14, 0.12, bark, 3)
+			var cb := v.size()
+			var cc := Color(0.10, 0.24, 0.16) * tint
+			v.push_back(p + up * 9.5 * sc); nrm.push_back(up); col.push_back(cc * 1.15)
+			for k in 6:
+				var an := rot + TAU * k / 6.0
+				var d := Vector3(cos(an), 0.0, sin(an))
+				v.push_back(p + d * 2.3 * sc + up * 1.0 * sc); nrm.push_back((d + up * 0.3).normalized()); col.push_back(cc * 0.8)
+			for k in 6:
+				idx.push_back(cb); idx.push_back(cb + 1 + (k + 1) % 6); idx.push_back(cb + 1 + k)
+		_:  # липа, клён, акация
+			_ppole(p, p + up * 2.8 * sc, 0.20, 0.15, bark, 3)
+			_crown(p + up * 5.6 * sc, 3.1 * sc, 3.3 * sc, Color(0.19, 0.37, 0.16) * tint, rot)
