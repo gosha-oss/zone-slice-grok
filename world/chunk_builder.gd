@@ -53,6 +53,11 @@ var idx := PackedInt32Array()
 var dv := PackedVector3Array()
 var dc := PackedColorArray()
 var di := PackedInt32Array()
+# свет: накладывается сложением, виден только ночью
+var gv := PackedVector3Array()
+var gc := PackedColorArray()
+var gi := PackedInt32Array()
+var lamps := PackedVector3Array()   # где висят лампы (для настоящих источников света рядом с игроком)
 var _ck := ""
 
 static func build(c: Vector2i, with_shape: bool) -> Dictionary:
@@ -93,6 +98,16 @@ func _build(c: Vector2i, with_shape: bool) -> Dictionary:
 		var dm := ArrayMesh.new()
 		dm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, da)
 		out["decals"] = dm
+	if not gv.is_empty():
+		var ga := []
+		ga.resize(Mesh.ARRAY_MAX)
+		ga[Mesh.ARRAY_VERTEX] = gv
+		ga[Mesh.ARRAY_COLOR] = gc
+		ga[Mesh.ARRAY_INDEX] = gi
+		var gm := ArrayMesh.new()
+		gm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, ga)
+		out["glow"] = gm
+		out["lamps"] = lamps
 	if with_shape:
 		out["shape"] = mesh.create_trimesh_shape()
 	return out
@@ -570,12 +585,14 @@ func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
 			if pvar == 1:   # парковый
 				_ppole(p, p + up * 3.9, 0.06, 0.045, METAL_DARK)
 				_pbox(p + up * 4.05, r * 0.16, up * 0.14, f * 0.16, Color(0.85, 0.83, 0.74))
+				_lamp_glow(p + up * 4.05, p.y + 0.15, 7.5, 0.40, pvar + int(p.x * 3.0))
 			else:
 				var top := p + up * 9.0
 				_ppole(p, top, 0.14, 0.08, POLE_COLOR)
 				var tip := top + f * 1.9 + up * 0.5
 				_ppole(top - up * 0.1, tip, 0.05, 0.04, POLE_COLOR, 4)
 				_pbox(tip + f * 0.25 - up * 0.02, r * 0.14, up * 0.06, f * 0.36, Color(0.80, 0.80, 0.76))
+				_lamp_glow(tip + f * 0.25 - up * 0.10, p.y + 0.15, 14.0, 0.62, int(p.x * 0.05) + int(p.z * 0.05))
 		2:  # столб ЛЭП
 			var top := p + up * 8.6
 			_pbox(p + up * 4.3, r * 0.11, up * 4.3, f * 0.11, Color(0.56, 0.55, 0.52))
@@ -586,9 +603,14 @@ func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
 			_ppole(p, p + up * 3.6, 0.065, 0.055, METAL_DARK * 1.6)
 			var hc := p + up * 3.05 + f * 0.02
 			_pbox(hc, r * 0.16, up * 0.48, f * 0.11, METAL_DARK)
-			var lamps: Array[Color] = [Color(0.55, 0.08, 0.06), Color(0.50, 0.38, 0.05), Color(0.06, 0.42, 0.16)]
+			var tl: Array[Color] = [Color(0.30, 0.06, 0.05), Color(0.30, 0.22, 0.04), Color(0.04, 0.24, 0.10)]
+			var lit := 0 if (int(absf(yaw) / 45.0 + 0.5) % 2) == 0 else 2   # пока без переключения: одна ось красная, другая зелёная
+			var bright: Array[Color] = [Color(1.0, 0.16, 0.10), Color(1.0, 0.72, 0.10), Color(0.12, 0.95, 0.35)]
 			for k in 3:
-				_ppoly(hc + up * (0.31 - 0.31 * k) + f * 0.115, r, up, _ngon(8, 0.105), lamps[k], f)
+				var lc := hc + up * (0.31 - 0.31 * k) + f * 0.115
+				_ppoly(lc, r, up, _ngon(8, 0.105), bright[k] if k == lit else tl[k], f)
+				if k == lit:
+					_glow_quad(lc + f * 0.02, r * 0.11, up * 0.11, bright[k] * 0.8)
 			_pbox(p + up * 2.25, r * 0.10, up * 0.20, f * 0.07, METAL_DARK)
 		4:  # пешеходный светофор
 			_ppole(p, p + up * 2.7, 0.05, 0.045, METAL_DARK * 1.6)
@@ -657,3 +679,35 @@ func _prop(ptype: int, p: Vector3, yaw: float, pvar: int) -> void:
 				_pbox(p + up * 0.36 + r * 0.7 * s, r * 0.03, up * 0.36, f * 0.2, METAL_DARK * 1.5)
 		8:  # урна
 			_pbox(p + up * 0.55, r * 0.17, up * 0.40, f * 0.17, Color(0.16, 0.26, 0.18))
+
+# ---------- свет ----------
+func _glow_quad(c: Vector3, a: Vector3, b: Vector3, color: Color) -> void:
+	var base := gv.size()
+	gv.push_back(c - a - b); gv.push_back(c + a - b); gv.push_back(c + a + b); gv.push_back(c - a + b)
+	for _k in 4:
+		gc.push_back(color)
+	gi.push_back(base); gi.push_back(base + 1); gi.push_back(base + 2)
+	gi.push_back(base); gi.push_back(base + 2); gi.push_back(base + 3)
+
+## Лампа: яркая точка и пятно света на земле. Часть ламп тёплые (натриевые), часть белые.
+func _lamp_glow(head: Vector3, ground_y: float, radius: float, power: float, seed_i: int) -> void:
+	var warm := (seed_i * 7 + 3) % 10 < 7
+	var c := Color(1.0, 0.70, 0.36) if warm else Color(0.82, 0.90, 1.0)
+	lamps.push_back(head)
+	_glow_quad(head, Vector3(0.22, 0.0, 0.0), Vector3(0.0, 0.0, 0.22), c)
+	_glow_quad(head, Vector3(0.22, 0.0, 0.0), Vector3(0.0, 0.16, 0.0), c)
+	_glow_quad(head, Vector3(0.0, 0.0, 0.22), Vector3(0.0, 0.16, 0.0), c)
+	var base := gv.size()
+	var g := Vector3(head.x, ground_y + 0.26, head.z)
+	gv.push_back(g); gc.push_back(c * power)
+	for k in 12:
+		var an := TAU * k / 12.0
+		gv.push_back(g + Vector3(cos(an) * radius * 0.45, 0.0, sin(an) * radius * 0.45)); gc.push_back(c * power * 0.55)
+	for k in 12:
+		var an := TAU * k / 12.0
+		gv.push_back(g + Vector3(cos(an) * radius, 0.0, sin(an) * radius)); gc.push_back(Color(0, 0, 0))
+	for k in 12:
+		var k2 := (k + 1) % 12
+		gi.push_back(base); gi.push_back(base + 1 + k); gi.push_back(base + 1 + k2)
+		gi.push_back(base + 1 + k); gi.push_back(base + 13 + k); gi.push_back(base + 13 + k2)
+		gi.push_back(base + 1 + k); gi.push_back(base + 13 + k2); gi.push_back(base + 1 + k2)

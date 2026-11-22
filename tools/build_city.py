@@ -932,7 +932,10 @@ def lamp_at(target, x, z, maxd=14.0):
     if b_:
         r = car[b_[1]]
         ax, az, ay, tx, tz = side_point(r, b_[2], 0.0)
-        return add_prop(target, 1, x, z, yaw_of(ax - x, az - z), 0)
+        y_ = float(sample_tri(Hf, [x], [z])[0])
+        if b_[0] < r["w"] / 2 + 5.0:
+            y_ = max(y_, ay + 0.05)
+        return add_prop(target, 1, x, z, yaw_of(ax - x, az - z), 0, y_)
     return add_prop(target, 1, x, z, float(hsh(x, z) % 360), 1)
 n_lamp = 0
 for n in tagged_nodes:

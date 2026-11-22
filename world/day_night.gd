@@ -85,3 +85,8 @@ func _apply() -> void:
 
 func is_night() -> bool:
 	return sun_elevation_azimuth(GameClock.hours()).x < 0.0
+
+## Насколько включено уличное освещение: 0 днём, 1 ночью (зажигается в сумерках).
+func night_amount() -> float:
+	var el := rad_to_deg(sun_elevation_azimuth(GameClock.hours()).x)
+	return 1.0 - smoothstep(-5.0, 2.0, el)

@@ -7,6 +7,8 @@ extends Node3D
 @export var max_tasks: int = 3               # сколько квадратов строится одновременно
 @export var apply_per_frame: int = 2
 @export var decal_range: float = 700.0       # как далеко видны разметка и люки, м
+@export var glow_range: float = 900.0        # как далеко видны огни и пятна света, м
+@export var real_lights: int = 14            # сколько ближайших фонарей светят по-настоящему
 
 signal initial_ready
 
@@ -25,6 +27,11 @@ var _mat: StandardMaterial3D
 var _water_mat: StandardMaterial3D
 var _far: MeshInstance3D
 var _far_mat: ShaderMaterial
+var _glow_mat: ShaderMaterial
+var _night := 0.0
+var _glow_on := false
+var _omni: Array[OmniLight3D] = []
+var _omni_t := 0.0
 
 func _ready() -> void:
 	_target = get_node_or_null(target_path)
@@ -37,6 +44,25 @@ func _ready() -> void:
 	_water_mat.albedo_color = ChunkBuilder.WATER_COLOR
 	_water_mat.roughness = 0.12
 	_water_mat.metallic = 0.1
+	var sh := Shader.new()
+	sh.code = """shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
+uniform float night = 0.0;
+void fragment() {
+	ALBEDO = COLOR.rgb * night;
+}
+"""
+	_glow_mat = ShaderMaterial.new()
+	_glow_mat.shader = sh
+	for _i in real_lights:
+		var o := OmniLight3D.new()
+		o.omni_range = 22.0
+		o.omni_attenuation = 1.3
+		o.shadow_enabled = false
+		o.light_color = Color(1.0, 0.78, 0.50)
+		o.visible = false
+		add_child(o)
+		_omni.append(o)
 	if CityData.ok:
 		_build_far_async()
 
@@ -54,6 +80,7 @@ func _process(_delta: float) -> void:
 	_start_tasks()
 	_apply_done()
 	_update_collision(pos)
+	_update_lights(pos, _delta)
 	if _far_mat:
 		_far_mat.set_shader_parameter("cam_pos", pos)
 		_far_mat.set_shader_parameter("near_r", maxf(0.0, view_radius - 420.0) if is_ready else 0.0)
@@ -138,8 +165,19 @@ func _apply_done() -> void:
 			dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			dm.visibility_range_end = decal_range
 			node.add_child(dm)
+		var lamps := PackedVector3Array()
+		if res.get("glow") != null:
+			var gm := MeshInstance3D.new()
+			gm.mesh = res.glow
+			gm.material_override = _glow_mat
+			gm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			gm.visibility_range_end = glow_range
+			gm.visible = _glow_on
+			gm.add_to_group("city_glow")
+			node.add_child(gm)
+			lamps = res.lamps
 		add_child(node)
-		loaded[k] = {"node": node, "mesh": res.mesh, "body": null, "pending_shape": false, "tris": res.tris}
+		loaded[k] = {"node": node, "mesh": res.mesh, "body": null, "pending_shape": false, "tris": res.tris, "lamps": lamps}
 		tris_total += res.tris
 		if res.has("shape"):
 			_attach_body(k, res.shape)
@@ -236,3 +274,44 @@ func set_quality(radius: float) -> void:
 func _exit_tree() -> void:
 	for id in _task_ids:
 		WorkerThreadPool.wait_for_task_completion(id)
+
+## Ночной свет: огни и пятна на земле по всему городу, настоящие источники — только у ближайших фонарей.
+func _update_lights(pos: Vector3, delta: float) -> void:
+	var dn := get_node_or_null("../DayNight")
+	_night = dn.night_amount() if dn and dn.has_method("night_amount") else 0.0
+	_glow_mat.set_shader_parameter("night", _night)
+	var on := _night > 0.02
+	if on != _glow_on:
+		_glow_on = on
+		get_tree().call_group("city_glow", "set_visible", on)
+	_omni_t -= delta
+	if _omni_t > 0.0:
+		for o in _omni:
+			o.light_energy = 4.5 * _night
+		return
+	_omni_t = 0.3
+	var found: Array = []
+	if on:
+		var cam := get_viewport().get_camera_3d()
+		var cp := cam.global_position if cam else pos
+		var c := CityData.chunk_of(cp)
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				var e: Variant = loaded.get(c + Vector2i(dx, dz))
+				if e == null:
+					continue
+				var org: Vector3 = e.node.position
+				for lp: Vector3 in e.lamps:
+					var w := org + lp
+					var d := w.distance_squared_to(cp)
+					if d < 110.0 * 110.0:
+						found.append([d, w])
+		found.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	for i in _omni.size():
+		var o := _omni[i]
+		if i < found.size():
+			o.global_position = found[i][1] - Vector3(0.0, 0.25, 0.0)
+			o.light_energy = 4.5 * _night
+			o.visible = true
+		else:
+			o.visible = false
